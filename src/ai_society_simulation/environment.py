@@ -1,6 +1,8 @@
 """Defines the Environment class for the simulation."""
 
 import logging
+import json # Add json import
+import os # Add os import
 from typing import List, Dict, Any, Optional # Import Optional
 from datetime import datetime, timezone, timedelta # Import datetime, timezone, timedelta
 import uuid # Import uuid for unique knowledge IDs
@@ -11,12 +13,149 @@ PROPOSAL_TTL_SECONDS = 3600 # Default Time-To-Live for proposals (e.g., 1 hour i
 class Environment:
     """Represents the shared environment for the agents."""
 
-    def __init__(self):
+    def __init__(self, knowledge_base_file_path: Optional[str] = None, resource_config: Optional[Dict[str, Any]] = None): # Add resource_config argument
         """Initializes the environment."""
         self.message_log: List[Dict[str, Any]] = []
-        self.shared_knowledge_base: List[Dict[str, Any]] = [] # Add knowledge base
-        self.proposals: List[Dict[str, Any]] = [] # Add proposal list
-        logger.info("Environment initialized with message log, knowledge base, and proposal list.")
+        self.shared_knowledge_base: List[Dict[str, Any]] = [] # Initialize empty, load_initial_knowledge will populate
+        self.proposals: List[Dict[str, Any]] = []
+        self.knowledge_base_file_path: Optional[str] = knowledge_base_file_path # Store the path
+
+        # Resource Management Attributes
+        self.resources: Dict[str, float] = {} # Global resource levels
+        self.resource_config = resource_config if resource_config else {} # Store resource config
+        self.resource_types = self.resource_config.get('types', [])
+
+        logger.info("Environment initialized with message log, knowledge base, proposal list, KB path, and resource tracking.")
+        # Note: load_initial_knowledge() and initialize_resources() are called by Simulation after Environment is created
+
+    # Add this new method
+    def initialize_resources(self, initial_levels: Dict[str, float]) -> None:
+        """Initializes global resource levels based on config."""
+        logger.info("Initializing global resource levels...")
+        for res_type in self.resource_types:
+            self.resources[res_type] = float(initial_levels.get(res_type, 0.0)) # Ensure float
+            logger.debug(f"  - Initial {res_type}: {self.resources[res_type]}")
+        logger.info(f"Initial resource levels set: {self.resources}")
+
+    # Add this new method
+    def generate_resources(self) -> None:
+        """Generates resources globally based on configured rates."""
+        generation_rates = self.resource_config.get('generation_per_tick', {})
+        if not generation_rates:
+            return # Nothing to generate
+
+        logger.debug("Generating resources...")
+        for res_type, rate in generation_rates.items():
+            if res_type in self.resources:
+                amount = float(rate) # Ensure float
+                self.resources[res_type] += amount
+                logger.debug(f"  - Generated {amount} {res_type}. New total: {self.resources[res_type]:.2f}")
+            else:
+                logger.warning(f"Configured generation for unknown resource type '{res_type}'. Skipping.")
+
+    # Add this new method
+    def consume_agent_upkeep(self, num_agents: int) -> bool:
+        """Consumes resources for agent upkeep based on configured costs."""
+        upkeep_costs = self.resource_config.get('agent_upkeep_cost', {})
+        if not upkeep_costs or num_agents <= 0:
+            return True # No upkeep cost or no agents
+
+        logger.debug(f"Consuming upkeep for {num_agents} agents...")
+        sufficient_resources = True
+        for res_type, cost_per_agent in upkeep_costs.items():
+            if res_type in self.resources:
+                total_cost = float(cost_per_agent) * num_agents # Ensure float
+                if total_cost <= 0: continue # Skip if cost is zero or negative
+
+                current_level = self.resources[res_type]
+                if current_level < total_cost:
+                    logger.warning(f"Insufficient {res_type} for agent upkeep! Needed: {total_cost:.2f}, Have: {current_level:.2f}. Consuming all available.")
+                    self.resources[res_type] = 0.0 # Consume all available
+                    sufficient_resources = False # Mark that resources ran out
+                else:
+                    self.resources[res_type] -= total_cost
+                logger.debug(f"  - Consumed {min(total_cost, current_level):.2f} {res_type} for upkeep. New total: {self.resources[res_type]:.2f}")
+            else:
+                logger.warning(f"Configured upkeep cost for unknown resource type '{res_type}'. Skipping.")
+        return sufficient_resources # Return whether all upkeep costs were met
+
+    # Add this new method
+    def modify_resource(self, resource_type: str, amount: float) -> bool:
+        """
+        Modifies the level of a specific resource.
+        Amount can be positive (add) or negative (remove).
+        Returns True if successful, False if resource type is invalid or removal exceeds available amount.
+        """
+        if resource_type not in self.resources:
+            logger.warning(f"Attempted to modify unknown resource type: {resource_type}")
+            return False
+
+        current_level = self.resources[resource_type]
+        if amount < 0 and abs(amount) > current_level:
+            logger.warning(f"Attempted to remove {abs(amount):.2f} {resource_type}, but only {current_level:.2f} available. Setting to 0.")
+            self.resources[resource_type] = 0.0
+            # Decide if this should be False (failed to remove full amount) or True (operation completed partially)
+            # Let's return True for now, indicating the operation happened, even if clamped.
+            return True
+        else:
+            self.resources[resource_type] += amount
+            logger.debug(f"Modified {resource_type} by {amount:+.2f}. New total: {self.resources[resource_type]:.2f}")
+            return True
+
+    # Add this new method
+    def get_gather_amount(self, resource_type: str) -> float:
+        """Gets the configured amount for gathering a specific resource."""
+        gather_amounts = self.resource_config.get('gather_amounts', {})
+        return float(gather_amounts.get(resource_type, 0.0)) # Ensure float, default 0
+
+    # Add this new method (logic moved from Simulation._load_initial_knowledge_base)
+    def load_initial_knowledge(self) -> None:
+        """Loads initial knowledge items from the file path stored during init."""
+        if not self.knowledge_base_file_path:
+            logger.info("No initial knowledge base file path provided. Skipping initial load.")
+            return
+
+        logger.info(f"Attempting to load initial knowledge base from: {self.knowledge_base_file_path}")
+        try:
+            # Check if file exists before opening
+            if not os.path.exists(self.knowledge_base_file_path):
+                 logger.error(f"Initial knowledge base file not found: {self.knowledge_base_file_path}. Skipping load.")
+                 return
+
+            with open(self.knowledge_base_file_path, 'r', encoding='utf-8') as f:
+                initial_knowledge = json.load(f)
+
+            if not isinstance(initial_knowledge, list):
+                logger.error(f"Initial knowledge base file '{self.knowledge_base_file_path}' does not contain a JSON list. Skipping load.")
+                return
+
+            # Validate and add items (simple validation for now)
+            valid_items = []
+            for i, item in enumerate(initial_knowledge):
+                if isinstance(item, dict) and 'content' in item:
+                    # Add minimal required fields if missing (timestamp, source, id)
+                    item.setdefault('timestamp', datetime.now(timezone.utc).isoformat())
+                    item.setdefault('source_agent_id', 'SystemInitial')
+                    item.setdefault('id', f'initial_{i}') # Ensure unique initial IDs
+                    valid_items.append(item)
+                else:
+                    logger.warning(f"Skipping invalid item at index {i} in initial knowledge file: {item}")
+
+            # Prepend initial knowledge so it appears older than runtime additions
+            # Ensure no duplicates if this method were called multiple times (though it shouldn't be)
+            existing_ids = {k.get('id') for k in self.shared_knowledge_base if k.get('id')}
+            new_items_to_add = [item for item in valid_items if item.get('id') not in existing_ids]
+
+            self.shared_knowledge_base = new_items_to_add + self.shared_knowledge_base
+            logger.info(f"Successfully loaded and prepended {len(new_items_to_add)} items from initial knowledge base file.")
+
+        except FileNotFoundError: # Should be caught by os.path.exists, but keep for safety
+            logger.error(f"Initial knowledge base file not found: {self.knowledge_base_file_path}. Skipping load.")
+        except json.JSONDecodeError as e:
+            logger.error(f"Error decoding JSON from initial knowledge base file '{self.knowledge_base_file_path}': {e}. Skipping load.")
+        except Exception as e:
+            logger.exception(f"An unexpected error occurred while loading initial knowledge base: {e}")
+
 
     def add_message(self, sender_id: str, content: str) -> None:
         """Adds a message to the environment's log with a timestamp."""
@@ -136,8 +275,20 @@ class Environment:
 
         try:
             if prop_type == 'knowledge_add':
+                # Add to in-memory list first
                 new_id = self.publish_knowledge(f"System (via Proposal {proposal['proposal_id']})", proposal['content'])
-                logger.info(f"Knowledge added via proposal {proposal['proposal_id']}, new ID: {new_id}")
+                logger.info(f"Knowledge added to memory via proposal {proposal['proposal_id']}, new ID: {new_id}")
+
+                # Find the newly added item to persist it
+                new_item = next((item for item in self.shared_knowledge_base if item.get('id') == new_id), None)
+                if new_item:
+                    self._persist_knowledge_item(new_item) # Call the new persistence method
+                else:
+                    logger.error(f"Could not find newly added knowledge item {new_id} in memory to persist.")
+                    # Decide if this should be an error state for the proposal?
+                    # proposal['status'] = 'error'
+                    # return False # Or just log the error and continue? Let's log for now.
+
                 proposal['status'] = 'executed'
                 return True
             elif prop_type == 'knowledge_modify':
@@ -192,6 +343,44 @@ class Environment:
             proposal['status'] = 'error' # Mark as error state
             return False
 
+    # Add this new private method for persistence
+    def _persist_knowledge_item(self, new_item: Dict[str, Any]) -> None:
+        """Appends a single knowledge item to the JSON file."""
+        if not self.knowledge_base_file_path:
+            logger.warning("Cannot persist knowledge item: knowledge_base_file_path is not set.")
+            return
+
+        logger.info(f"Persisting knowledge item {new_item.get('id')} to {self.knowledge_base_file_path}")
+        try:
+            # Read existing data
+            current_knowledge = []
+            if os.path.exists(self.knowledge_base_file_path):
+                with open(self.knowledge_base_file_path, 'r', encoding='utf-8') as f:
+                    try:
+                        content = f.read()
+                        if content.strip(): # Check if file is not empty
+                            current_knowledge = json.loads(content)
+                        if not isinstance(current_knowledge, list):
+                            logger.error(f"Knowledge base file {self.knowledge_base_file_path} does not contain a list. Cannot append. Overwriting with new item.")
+                            current_knowledge = [] # Reset if not a list
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Error decoding JSON from {self.knowledge_base_file_path}: {e}. Cannot append. Overwriting with new item.")
+                        current_knowledge = [] # Reset on decode error
+
+            # Append new item
+            current_knowledge.append(new_item)
+
+            # Write updated data back
+            with open(self.knowledge_base_file_path, 'w', encoding='utf-8') as f:
+                json.dump(current_knowledge, f, indent=2) # Use indent=2 for consistency
+            logger.info(f"Successfully appended knowledge item {new_item.get('id')} to file.")
+
+        except IOError as e:
+            logger.error(f"IOError persisting knowledge item to {self.knowledge_base_file_path}: {e}")
+        except Exception as e:
+            logger.exception(f"Unexpected error persisting knowledge item to {self.knowledge_base_file_path}: {e}")
+
+
     def get_recent_knowledge(self, count: int = 5) -> List[Dict[str, Any]]:
         """Returns the most recent knowledge items."""
         return self.shared_knowledge_base[-count:]
@@ -202,11 +391,12 @@ class Environment:
 
     def get_state(self) -> Dict[str, Any]:
         """Returns the current state of the environment relevant for agents."""
-        # Provide recent messages, knowledge, and active proposals for agent perception
+        # Provide recent messages, knowledge, active proposals, and resources for agent perception
         return {
             "recent_messages": self.get_recent_messages(count=5),
             "recent_knowledge": self.get_recent_knowledge(count=3), # Agents perceive last 3 knowledge items
-            "active_proposals": self.get_active_proposals() # Include active proposals
+            "active_proposals": self.get_active_proposals(), # Include active proposals
+            "global_resources": self.resources.copy(), # Include current resource levels
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -216,15 +406,34 @@ class Environment:
             "message_log": self.message_log,
             "shared_knowledge_base": self.shared_knowledge_base,
             "proposals": self.proposals, # Save proposals
+            "resources": self.resources, # Save resource levels
+            "resource_config": self.resource_config, # Save resource config used by this env instance
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Environment':
+    def from_dict(cls, data: Dict[str, Any], knowledge_base_file_path: Optional[str] = None) -> 'Environment': # Add argument
         """Deserializes an environment's state from a dictionary."""
-        env = cls()
+        # Load resource config from saved state if available, otherwise it will be empty
+        resource_config = data.get("resource_config", {})
+        # Pass the path and resource config to the constructor
+        env = cls(knowledge_base_file_path=knowledge_base_file_path, resource_config=resource_config)
         # Timestamps are loaded directly as strings
         env.message_log = data.get("message_log", [])
-        env.shared_knowledge_base = data.get("shared_knowledge_base", [])
+        env.shared_knowledge_base = data.get("shared_knowledge_base", []) # Load in-memory state
         env.proposals = data.get("proposals", []) # Load proposals
+        # Load resource levels, ensuring types match config (or handle discrepancies)
+        loaded_resources = data.get("resources", {})
+        env.resources = {} # Start fresh
+        for res_type in env.resource_types: # Iterate through types defined in *loaded* config
+            env.resources[res_type] = float(loaded_resources.get(res_type, 0.0)) # Ensure float, default 0
+            logger.debug(f"  - Loaded {res_type}: {env.resources[res_type]}")
+        # Log if loaded state had resources not in the current config's types list
+        for res_type in loaded_resources:
+            if res_type not in env.resource_types:
+                logger.warning(f"Loaded state contained resource '{res_type}' which is not defined in the loaded resource config. Ignoring.")
+
         # Could add validation here if needed
+        # No need to call load_initial_knowledge here, as we are restoring the state *from the save file*,
+        # which already includes any initially loaded + subsequently added items.
+        # No need to call initialize_resources, as we loaded the levels directly.
         return env

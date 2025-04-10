@@ -5,35 +5,24 @@ from typing import List, Dict, Any, Deque, TYPE_CHECKING, Optional
 from collections import deque
 import json # Ensure json is imported
 from datetime import datetime, timezone # Import datetime and timezone
+import re # Import re for cleaning role names
+from ollama import Message # Import the Message class
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .environment import Environment
-    from .actions import Action, get_tool_definitions # Import Action and tool definitions getter
+    from .actions import Action # Import Action
 
-# --- Action List for Prompt (REMOVED - Now using tool definitions) ---
-# _ACTION_LIST_PROMPT_SECTION = """
-# 1. Discuss / Converse:
-#    {{"_action_type": "SendMessageAction", "content": "Your conversational message here."}}
-#
-# 2. Propose Change (Requires Discussion First!):
-#    - General Proposal: {{"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}}
-#    - Add Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}}
-#    - Modify Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_modify", "description": "Reason for modifying this knowledge.", "target_knowledge_id": "kb_xxxxxx", "new_content": "The updated knowledge content."}}
-#    - Delete Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_delete", "description": "Reason for deleting this knowledge.", "target_knowledge_id": "kb_xxxxxx"}}
-#
-# 3. Vote on Active Proposal:
-#    {{"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"}} # Or "no", "abstain"
-#
-# 4. Query Knowledge Base:
-#    {{"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}}
-#
-# 5. Record Agreed Fact (Use *after* proposal passes or for simple, undisputed facts):
-#    {{"_action_type": "PublishKnowledgeAction", "content": "Factual statement or summary of passed proposal."}}
-#
-# # Removed the large _ACTION_LIST_PROMPT_SECTION
+# Import the function directly for runtime use
+from .actions import get_tool_definitions, _get_action_class # Import class getter
+# Import specific actions needed for act method
+from .actions import (
+    Action, NoAction, SendMessageAction, PublishKnowledgeAction,
+    QueryKnowledgeAction, ProposeAction, VoteAction, GatherResourceAction,
+    ChangeRoleAction # Import new action
+)
 
 
 class Agent:
@@ -60,6 +49,7 @@ class Agent:
         self.knowledge_query_result: Optional[List[Dict[str, Any]]] = None # Result from last KB query
         self.personality_and_motives: str = "Not yet determined." # Initialize personality attribute
         self.is_generating: bool = False # Flag to indicate if the agent is currently thinking/calling LLM
+        self.last_known_agent_ids: List[str] = [] # To store agent IDs from perception
         # self.long_term_memory: List[str] = [] # Placeholder for future LTM/Summaries
         logger.info(f"Agent {self.agent_id} ({self.color}) initialized with model {self.model_identifier}.")
 
@@ -86,26 +76,157 @@ class Agent:
         logger.debug(f"Agent {self.agent_id} personality prompt:\n{prompt}")
 
         try:
-            response_text = call_ollama(
+            # call_ollama now returns a Message object or an error dictionary
+            response_obj = call_ollama(
                 self.model_identifier,
                 prompt,
                 request_json_format=False # Request plain text for personality description
             )
-            # Clean up response (remove potential quotes or extra whitespace)
-            self.personality_and_motives = response_text.strip().strip('"').strip("'").strip()
-            logger.info(f"Agent {self.agent_id} ({self.color}) determined personality: {self.personality_and_motives}")
-            self.update_memories({
-                "type": "personality_set",
-                "content": {"prompt": prompt, "response": response_text},
-                "summary": f"Personality determined: {self.personality_and_motives[:60]}..."
-            })
-        except Exception as e:
-            logger.exception(f"Agent {self.agent_id} ({self.color}) failed to determine personality: {e}")
-            self.personality_and_motives = "Failed to determine personality due to error."
+
+            # Check if the response is a Message object (success) or dict (error)
+            if isinstance(response_obj, Message):
+                personality_text = response_obj.content
+                if isinstance(personality_text, str):
+                    # Clean up response
+                    self.personality_and_motives = personality_text.strip().strip('"').strip("'").strip()
+                    logger.info(f"Agent {self.agent_id} ({self.color}) determined personality: {self.personality_and_motives}")
+                    # Log the response object's content for memory
+                    self.update_memories({
+                        "type": "personality_set",
+                        "content": {"prompt": prompt, "response": {"role": response_obj.role, "content": response_obj.content}}, # Log relevant parts
+                        "summary": f"Personality determined: {self.personality_and_motives[:60]}..."
+                    })
+                else:
+                    logger.error(f"Agent {self.agent_id} ({self.color}) received Message object with non-string content for personality: {personality_text}")
+                    self.personality_and_motives = "Failed to determine personality (invalid response content type)."
+                    self.update_memories({
+                        "type": "personality_error",
+                        "content": {"prompt": prompt, "response": {"role": response_obj.role, "content": personality_text}, "error": "Non-string content in Message"},
+                        "summary": "Failed to determine personality (invalid content type)."
+                    })
+            elif isinstance(response_obj, dict): # Handle error dictionary from call_ollama
+                error_reason = response_obj.get('reason', 'Unknown error from LLM call.')
+                logger.error(f"Agent {self.agent_id} ({self.color}) failed to determine personality. LLM call returned error: {error_reason}")
+                self.personality_and_motives = f"Failed to determine personality ({error_reason})."
+                self.update_memories({
+                    "type": "personality_error",
+                    "content": {"prompt": prompt, "response": response_obj, "error": "LLM call failed"},
+                    "summary": f"Failed to determine personality ({error_reason})."
+                })
+            else: # Should not happen if call_ollama adheres to return types
+                 logger.error(f"Agent {self.agent_id} ({self.color}) received unexpected type from call_ollama: {type(response_obj)}")
+                 self.personality_and_motives = "Failed to determine personality (unexpected LLM response type)."
+                 self.update_memories({
+                    "type": "personality_error",
+                    "content": {"prompt": prompt, "response": str(response_obj), "error": "Unexpected LLM response type"},
+                    "summary": "Failed to determine personality (unexpected type)."
+                })
+
+        except Exception as e: # Catch other potential errors during processing
+            logger.exception(f"Agent {self.agent_id} ({self.color}) encountered an unexpected error during personality determination: {e}")
+            self.personality_and_motives = "Failed to determine personality due to processing error."
+            # Ensure memory is updated even if an outer exception occurs
+            # Note: response_obj might not be defined if error happened before call_ollama
+            response_data_for_log = str(response_obj) if 'response_obj' in locals() else "LLM call not completed"
             self.update_memories({
                 "type": "personality_error",
+                "content": {"prompt": prompt, "response": response_data_for_log, "error": str(e)},
+                "summary": "Failed to determine personality (processing error)."
+            })
+
+    # --- NEW METHOD ---
+    def determine_role(self, existing_agent_ids: List[str]) -> None:
+        """
+        Uses the LLM during initialization (Tick 0) to define its role/name.
+        Updates self.agent_id if successful and unique.
+
+        Args:
+            existing_agent_ids: List of IDs already assigned to other agents during init.
+        """
+        logger.info(f"Agent {self.agent_id} ({self.color}) determining role...")
+        from .llm_interface import call_ollama
+
+        prompt_template = self.prompts.get('agent_role_determination')
+        if not prompt_template:
+            logger.error(f"Agent {self.agent_id} ({self.color}) cannot determine role: 'agent_role_determination' prompt template missing.")
+            # Keep original ID if prompt fails
+            self.update_memories({
+                "type": "role_determination_error",
+                "content": {"error": "Prompt template missing"},
+                "summary": "Failed to determine role (prompt missing)."
+            })
+            return
+
+        # Format the prompt
+        prompt = prompt_template.format(
+            agent_id=self.agent_id,
+            color=self.color,
+            directives_list=", ".join(self.directives),
+            personality=self.personality_and_motives # Use determined personality
+        )
+        logger.debug(f"Agent {self.agent_id} role determination prompt:\n{prompt}")
+
+        try:
+            response_obj = call_ollama(
+                self.model_identifier,
+                prompt,
+                request_json_format=False # Request plain text for the role name
+            )
+
+            new_role = None
+            error_reason = "Unknown error" # Default error reason
+            if isinstance(response_obj, Message) and isinstance(response_obj.content, str):
+                # Clean up response: remove quotes, extra spaces, ensure basic validity
+                role_text = response_obj.content.strip().strip('"').strip("'").strip()
+                # Basic sanitization: allow letters, numbers, hyphens, limit length
+                role_text = re.sub(r'[^\w-]', '', role_text) # Remove invalid chars
+                role_text = role_text[:30] # Limit length
+
+                if role_text:
+                    new_role = role_text
+                else:
+                    logger.warning(f"Agent {self.agent_id} proposed an empty or invalid role name after cleaning: '{response_obj.content}'. Keeping original ID.")
+                    error_reason = "Invalid role name proposed"
+            elif isinstance(response_obj, dict):
+                error_reason = response_obj.get('reason', 'Unknown LLM error')
+                logger.error(f"Agent {self.agent_id} failed role determination. LLM Error: {error_reason}")
+            else:
+                error_reason = "Unexpected LLM response type"
+                logger.error(f"Agent {self.agent_id} failed role determination. Error: {error_reason}")
+
+            if new_role:
+                # Check for uniqueness (case-insensitive) against *already assigned* IDs
+                if new_role.lower() in [aid.lower() for aid in existing_agent_ids]:
+                    logger.warning(f"Agent {self.agent_id} proposed role '{new_role}' which is already taken. Keeping original ID.")
+                    self.update_memories({
+                        "type": "role_determination_error",
+                        "content": {"prompt": prompt, "response": response_obj, "proposed_role": new_role, "error": "Role name conflict"},
+                        "summary": f"Proposed role '{new_role}' conflicted. Kept '{self.agent_id}'."
+                    })
+                else:
+                    old_id = self.agent_id
+                    self.agent_id = new_role # Update the agent's ID
+                    logger.info(f"Agent {old_id} ({self.color}) determined role and changed ID to: {self.agent_id}")
+                    self.update_memories({
+                        "type": "role_set",
+                        "content": {"prompt": prompt, "response": response_obj, "old_id": old_id, "new_id": self.agent_id},
+                        "summary": f"Role determined. ID changed from '{old_id}' to '{self.agent_id}'."
+                    })
+            else:
+                # Log failure if new_role wasn't set
+                 self.update_memories({
+                    "type": "role_determination_error",
+                    "content": {"prompt": prompt, "response": response_obj, "error": error_reason},
+                    "summary": f"Failed to determine role ({error_reason}). Kept '{self.agent_id}'."
+                })
+
+        except Exception as e:
+            logger.exception(f"Agent {self.agent_id} encountered an unexpected error during role determination: {e}")
+            # Keep original ID on error
+            self.update_memories({
+                "type": "role_determination_error",
                 "content": {"prompt": prompt, "error": str(e)},
-                "summary": "Failed to determine personality."
+                "summary": f"Failed to determine role (exception). Kept '{self.agent_id}'."
             })
 
     def perceive(self, environment_state: Dict[str, Any]) -> None:
@@ -117,27 +238,31 @@ class Agent:
         # Store perception in memory, including recent messages
         # Store perception in memory, including recent messages and knowledge
         # Clear previous query result before new perception
+
+        # Store the list of agent IDs from the state passed by Simulation
+        self.last_known_agent_ids = environment_state.get('agent_ids', [])
         self.knowledge_query_result = None
 
         num_msgs = len(environment_state.get('recent_messages', []))
         num_knowledge = len(environment_state.get('recent_knowledge', []))
         num_proposals = len(environment_state.get('active_proposals', []))
+        num_resources = len(environment_state.get('global_resources', {}))
         current_tick = environment_state.get('current_tick', -1)
         is_forced_vote = environment_state.get('is_forced_vote_tick', False)
 
-        perception_summary = f"Perceived environment at Tick {current_tick}: {num_msgs} msgs, {num_knowledge} knowledge, {num_proposals} proposals."
+        perception_summary = f"Perceived environment at Tick {current_tick}: {len(self.last_known_agent_ids)} agents, {num_msgs} msgs, {num_knowledge} knowledge, {num_proposals} proposals, {num_resources} resource types."
         if is_forced_vote:
             perception_summary += " (Forced Vote Tick)"
 
-        # Store the entire perceived state, including tick info and forced vote flag
+        # Store the entire perceived state, including agent IDs
         self.update_memories({
             "type": "perception",
-            "content": environment_state, # Contains tick info now
+            "content": environment_state, # Contains agent_ids now
             "summary": perception_summary
         })
         # Store active proposals separately for easier access in _build_prompt
         self._last_perceived_proposals = environment_state.get('active_proposals', [])
-        logger.debug(f"Agent {self.agent_id} ({self.color}): {perception_summary}")
+        logger.debug(f"Agent {self.agent_id} ({self.color}): {perception_summary}. Known IDs: {self.last_known_agent_ids}")
 
 
     def think(self) -> 'Action':
@@ -147,7 +272,6 @@ class Agent:
         """
         logger.debug(f"Agent {self.agent_id} ({self.color}) starting think cycle using tool calling.")
         from .llm_interface import call_ollama
-        from .actions import Action, NoAction, _get_action_class # Import necessary actions and class getter
 
         # Retrieve the prompt template
         prompt_template = self.prompts.get('agent_thinking') # Prompt now instructs to use tools
@@ -175,20 +299,37 @@ class Agent:
         tools = get_tool_definitions()
 
         try:
-            # Call LLM with tools, get back the message dictionary
-            response_message = call_ollama(
+            # Call LLM with tools, get back a Message object or an error dictionary
+            response_obj = call_ollama(
                 self.model_identifier,
                 prompt,
                 tools=tools
                 # request_json_format=False (default when using tools)
             )
-            logger.debug(f"Agent {self.agent_id} ({self.color}) received LLM response message: {response_message}")
+            logger.debug(f"Agent {self.agent_id} ({self.color}) received LLM response object: {response_obj}")
 
-            # Check for tool calls in the response
-            tool_calls = response_message.get('tool_calls')
+            # Check if the response is a Message object (success) or dict (error)
+            if not isinstance(response_obj, Message):
+                 # Handle error dictionary from call_ollama
+                error_reason = response_obj.get('reason', 'Unknown error from LLM call.') if isinstance(response_obj, dict) else "Unknown LLM response type"
+                logger.error(f"Agent {self.agent_id} ({self.color}) failed think cycle. LLM call returned error: {error_reason}")
+                self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_obj, "error": "LLM call failed"}, "summary": f"Think cycle failed ({error_reason})."})
+                return NoAction(reason=f"LLM call failed: {error_reason}")
+
+            # --- Process successful Message object ---
+            logger.debug(f"Agent {self.agent_id} received successful Message object: Role={response_obj.role}, Content='{response_obj.content[:50]}...', ToolCalls={response_obj.tool_calls}")
+            tool_calls = response_obj.tool_calls # Access attribute directly
+
+            # Prepare response data for logging memory
+            response_data_for_log = {
+                "role": response_obj.role,
+                "content": response_obj.content,
+                "tool_calls": response_obj.tool_calls
+            }
 
             if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
-                # Process the first tool call for now
+                logger.debug(f"Agent {self.agent_id} detected tool calls: {tool_calls}")
+                # Process the first tool call
                 # TODO: Handle multiple tool calls if needed in the future
                 tool_call = tool_calls[0]
                 tool_name = tool_call.get('function', {}).get('name')
@@ -196,14 +337,14 @@ class Agent:
 
                 if not tool_name or not isinstance(tool_args, dict):
                     logger.error(f"Agent {self.agent_id} ({self.color}) received invalid tool call structure: {tool_call}. Defaulting to NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": "Invalid tool call structure"}, "summary": "Thought resulted in invalid tool call"})
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": "Invalid tool call structure"}, "summary": "Thought resulted in invalid tool call"})
                     return NoAction(reason="Invalid tool call structure received from LLM.")
 
                 # Find the corresponding action class
                 action_cls = _get_action_class(tool_name)
                 if not action_cls:
                     logger.error(f"Agent {self.agent_id} ({self.color}) received call for unknown tool '{tool_name}'. Defaulting to NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": f"Unknown tool name: {tool_name}"}, "summary": f"Thought called unknown tool: {tool_name}"})
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"Unknown tool name: {tool_name}"}, "summary": f"Thought called unknown tool: {tool_name}"})
                     return NoAction(reason=f"LLM called unknown tool: {tool_name}")
 
                 # Try to instantiate the action with the provided arguments
@@ -212,37 +353,41 @@ class Agent:
                     action = action_cls(**tool_args)
                     logger.info(f"Agent {self.agent_id} ({self.color}) decided action via tool call: {action_cls.__name__}({tool_args})")
                     # Store the thought process leading to the action
-                    self.update_memories({"type": "thought", "content": {"prompt": prompt, "response": response_message, "action": action.to_dict()}, "summary": f"Decided action via tool: {action.__class__.__name__}"})
+                    self.update_memories({"type": "thought", "content": {"prompt": prompt, "response": response_data_for_log, "action": action.to_dict()}, "summary": f"Decided action via tool: {action.__class__.__name__}"})
                     return action
                 except TypeError as e:
                     logger.error(f"Agent {self.agent_id} ({self.color}) failed to create action {tool_name} from tool args {tool_args}: {e}. Defaulting to NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": f"TypeError creating action: {e}"}, "summary": f"Tool call arg mismatch for {tool_name}"})
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"TypeError creating action: {e}"}, "summary": f"Tool call arg mismatch for {tool_name}"})
                     return NoAction(reason=f"LLM tool call arguments mismatch for {tool_name}: {e}")
                 except Exception as e:
                      logger.error(f"Agent {self.agent_id} ({self.color}) failed unexpectedly creating action {tool_name} from tool args {tool_args}: {e}. Defaulting to NoAction.", exc_info=True)
-                     self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": f"Exception creating action: {e}"}, "summary": f"Error creating action {tool_name}"})
+                     self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"Exception creating action: {e}"}, "summary": f"Error creating action {tool_name}"})
                      return NoAction(reason=f"Error creating action {tool_name} from tool call: {e}")
 
             else:
+                logger.debug(f"Agent {self.agent_id} detected NO tool calls in the response.")
                 # No tool call was made, check for content or treat as NoAction
-                response_content = response_message.get('content')
+                response_content = response_obj.content # Access attribute
                 if response_content:
+                    logger.debug(f"Agent {self.agent_id} detected content response instead of tool call: '{response_content[:100]}...'")
                     # LLM responded with text instead of a tool call.
-                    # Decide how to handle this. For now, log it and default to NoAction.
-                    # Could potentially interpret as a SendMessageAction in the future.
-                    logger.warning(f"Agent {self.agent_id} ({self.color}) LLM responded with content instead of tool call: '{response_content[:100]}...'. Performing NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": "LLM responded with content, not tool call"}, "summary": "Thought resulted in text response, not action"})
-                    return NoAction(reason="LLM responded with text instead of selecting an action tool.")
+                    # Interpret this as a SendMessageAction for now.
+                    logger.info(f"Agent {self.agent_id} ({self.color}) LLM responded with content instead of tool call. Interpreting as SendMessageAction.")
+                    action = SendMessageAction(content=response_content)
+                    self.update_memories({"type": "thought", "content": {"prompt": prompt, "response": response_data_for_log, "action": action.to_dict(), "interpretation": "Inferred SendMessageAction from content response"}, "summary": f"Inferred SendMessageAction from content"})
+                    return action
                 else:
                     # Empty response or unexpected structure
                     logger.warning(f"Agent {self.agent_id} ({self.color}) LLM response had no tool calls and no content. Performing NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": "Empty LLM response"}, "summary": "Thought resulted in empty response"})
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": "Empty LLM response"}, "summary": "Thought resulted in empty response"})
                     return NoAction(reason="LLM response was empty.")
 
         except Exception as e:
             # Catch errors during the call_ollama itself or unexpected issues
             logger.exception(f"Agent {self.agent_id} ({self.color}) encountered an unexpected error during think cycle: {e}")
-            self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "error": f"Outer think cycle exception: {e}"}, "summary": "Think cycle failed unexpectedly"})
+            # Note: response_obj might not be defined if error happened before call_ollama
+            response_data_for_log = str(response_obj) if 'response_obj' in locals() else "LLM call not completed"
+            self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"Outer think cycle exception: {e}"}, "summary": "Think cycle failed unexpectedly"})
             return NoAction(reason=f"Exception during think cycle: {e}")
 
 
@@ -254,9 +399,18 @@ class Agent:
         context['agent_id'] = self.agent_id
         context['color'] = self.color
         context['directives_list'] = "\n".join(f"- {d}" for d in self.directives)
+        context['personality'] = self.personality_and_motives # Add personality
+        context['agent_ids_list'] = ", ".join(self.last_known_agent_ids) # Add current agent IDs
 
         # Retrieve active proposals stored during perceive()
         active_proposals = getattr(self, '_last_perceived_proposals', [])
+
+        # Retrieve last perception memory content
+        last_perception_content = {}
+        for mem in reversed(self.short_term_memory):
+            if mem.get('type') == 'perception':
+                last_perception_content = mem.get('content', {})
+                break
 
         # 1. Knowledge Query Results
         query_lines = []
@@ -333,7 +487,20 @@ class Agent:
             knowledge_lines.append("- (Could not retrieve recent knowledge from perception memory)")
         context['recent_knowledge_context'] = "\n".join(knowledge_lines)
 
-        # 4. Internal Activity
+        # 4. Global Resources
+        resource_lines = []
+        global_resources = last_perception_content.get('global_resources')
+        if global_resources is not None: # Check if key exists
+            if not global_resources:
+                resource_lines.append("- (No global resources tracked)")
+            else:
+                resource_lines.extend([f"- {res_type}: {level:.1f}" for res_type, level in global_resources.items()])
+        else:
+             resource_lines.append("- (Could not retrieve resource levels from perception memory)")
+        context['resource_context'] = "\n".join(resource_lines)
+
+
+        # 5. Internal Activity
         internal_lines = []
         internal_mems_added = 0
         for mem in reversed(self.short_term_memory):
@@ -347,7 +514,7 @@ class Agent:
             internal_lines.append("- (No recent internal activity)")
         context['internal_activity_context'] = "\n".join(internal_lines)
 
-        # 5. Active Proposals
+        # 6. Active Proposals
         proposal_lines = []
         if not active_proposals:
             proposal_lines.append("- (No active proposals)")
@@ -366,16 +533,11 @@ class Agent:
                 proposal_lines.append(f"  Status: {vote_summary} (Your Vote: {my_vote})")
         context['active_proposals_context'] = "\n".join(proposal_lines)
 
-        # 6. Tick Info & Voting Context
-        current_tick = -1
-        is_forced_vote_tick = False
-        forced_vote_interval = 0
-        for mem in reversed(self.short_term_memory):
-            if mem.get('type') == 'perception':
-                current_tick = mem.get('content', {}).get('current_tick', -1)
-                is_forced_vote_tick = mem.get('content', {}).get('is_forced_vote_tick', False)
-                forced_vote_interval = mem.get('content', {}).get('forced_vote_interval', 0)
-                break
+        # 7. Tick Info & Voting Context
+        # Retrieve these from the last_perception_content found earlier
+        current_tick = last_perception_content.get('current_tick', -1)
+        is_forced_vote_tick = last_perception_content.get('is_forced_vote_tick', False)
+        forced_vote_interval = last_perception_content.get('forced_vote_interval', 0)
         context['current_tick'] = str(current_tick)
 
         voting_context_lines = []
@@ -385,7 +547,7 @@ class Agent:
         context['voting_context_summary'] = "\n".join(voting_context_lines)
 
 
-        # 7. Voting Instructions
+        # 8. Voting Instructions
         voting_instruction_lines = []
         can_vote = False
         if active_proposals:
@@ -403,7 +565,7 @@ class Agent:
              voting_instruction_lines.append("**MANDATORY VOTE CHECK:** No proposals require your vote currently. Proceed with another action.")
         context['voting_instructions'] = "\n".join(voting_instruction_lines)
 
-        # 8. Action List (REMOVED - Tools are passed via API now)
+        # 9. Action List (REMOVED - Tools are passed via API now)
         # context['action_list'] = _ACTION_LIST_PROMPT_SECTION
 
         # TODO: Implement token counting and context window management more robustly
@@ -418,13 +580,11 @@ class Agent:
         Execution logic for QueryKnowledgeAction is handled here to store results.
         """
         # 1. Decide action by thinking (inside try...finally to manage is_generating)
-        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction, ProposeAction, VoteAction # Import actions
-
         action: Action = NoAction(reason="Initialization before think") # Default action
         action_summary = "Action execution skipped due to error during think." # Default summary
 
-        # Set generating flag before thinking, ensure it's cleared after
-        self.is_generating = True
+        # NOTE: is_generating flag is now managed by the Simulation loop around the call to act()
+        # self.is_generating = True # REMOVED
         try:
             action = self.think() # Think now stores thought details in STM
 
@@ -445,6 +605,20 @@ class Agent:
                 num_results = len(self.knowledge_query_result)
                 action_summary = f"Queried knowledge base ('{action.query[:40]}...'), found {num_results} results."
                 logger.info(f"Agent {self.agent_id} ({self.color}) {action_summary}") # Log query result count
+            elif isinstance(action, GatherResourceAction):
+                res_type = action.resource_type
+                gather_amount = environment.get_gather_amount(res_type)
+                if gather_amount > 0:
+                    success = environment.modify_resource(res_type, gather_amount)
+                    if success:
+                        action_summary = f"Gathered {gather_amount:.1f} {res_type}."
+                    else:
+                        # This case might not happen if modify_resource always returns True on partial success
+                        action_summary = f"Attempted to gather {res_type}, but failed (e.g., invalid type)."
+                        logger.warning(f"Agent {self.agent_id} failed to gather {res_type} (modify_resource returned False).")
+                else:
+                    action_summary = f"Attempted to gather {res_type}, but gather amount is zero or negative in config."
+                    logger.warning(f"Agent {self.agent_id} attempted to gather {res_type} with non-positive gather amount configured.")
             elif isinstance(action, ProposeAction):
                 # Pass the relevant parts of the action to the environment
                 proposal_id = environment.register_proposal(self.agent_id, action.to_dict())
@@ -453,6 +627,30 @@ class Agent:
                 success = environment.record_vote(self.agent_id, action.proposal_id, action.vote)
                 status = "recorded" if success else "failed"
                 action_summary = f"Vote '{action.vote}' on {action.proposal_id} {status}."
+            # --- NEW ACTION HANDLING ---
+            elif isinstance(action, ChangeRoleAction):
+                new_role_raw = action.new_role.strip()
+                # Basic sanitization (redundant with initial determination but good practice)
+                new_role = re.sub(r'[^\w-]', '', new_role_raw)
+                new_role = new_role[:30] # Limit length
+
+                if not new_role:
+                    action_summary = "Action failed: Proposed role name was empty or invalid after cleaning."
+                    logger.warning(f"Agent {self.agent_id} proposed invalid role name '{new_role_raw}'. Action failed.")
+                    action = NoAction(reason=action_summary) # Change action to NoAction for memory log
+                # Check uniqueness against last known agent IDs (case-insensitive)
+                elif new_role.lower() in [aid.lower() for aid in self.last_known_agent_ids if aid.lower() != self.agent_id.lower()]:
+                    action_summary = f"Action failed: Proposed role name '{new_role}' is already in use."
+                    logger.warning(f"Agent {self.agent_id} failed to change role to '{new_role}': Name conflict.")
+                    action = NoAction(reason=action_summary) # Change action to NoAction
+                else:
+                    old_id = self.agent_id
+                    self.agent_id = new_role # Update the agent's ID
+                    action_summary = f"Changed role from '{old_id}' to '{self.agent_id}'."
+                    logger.info(f"Agent {old_id} ({self.color}) {action_summary}")
+                    # Note: The change takes effect immediately for subsequent actions/UI updates in the *next* tick.
+                    # Other agents will perceive the new name in the next tick.
+            # --- END NEW ACTION HANDLING ---
             elif isinstance(action, NoAction):
                 reason = action.reason if action.reason else "No reason specified."
                 action_summary = f"NoAction. Reason: {reason}"
@@ -463,8 +661,8 @@ class Agent:
             # --- End Action Execution Logic ---
 
         finally:
-            # Ensure the generating flag is turned off regardless of success/failure
-            self.is_generating = False
+            # NOTE: is_generating flag is now managed by the Simulation loop around the call to act()
+            # self.is_generating = False # REMOVED
             # Update short-term memory about the action taken (or attempted)
             # We log the action decided by think(), even if execution failed later (though less likely now)
             # If think() itself failed, the initial NoAction and error summary are used.
@@ -501,6 +699,7 @@ class Agent:
             "short_term_memory": list(self.short_term_memory),
             "personality_and_motives": self.personality_and_motives,
             "is_generating": self.is_generating,
+            # last_known_agent_ids is transient, derived from perception
             # knowledge_query_result is transient, not saved
             # prompts are not saved, they are loaded from file at simulation start
         }
@@ -542,4 +741,6 @@ class Agent:
         agent.knowledge_query_result = None
         # is_generating is transient and should always start as False when loaded
         agent.is_generating = False
+        # last_known_agent_ids is initialized empty
+        agent.last_known_agent_ids = []
         return agent

@@ -2,9 +2,11 @@
 
 import logging
 import json
-from typing import Callable, Optional, Any, Dict, List # Import List
+from typing import Callable, Optional, Any, Dict, List
 import ollama
-import dataclasses # Import dataclasses for fallback JSON
+import dataclasses
+from ollama import Message
+from ollama._types import ChatResponse # Import ChatResponse
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +27,10 @@ def call_ollama(
     prompt: str,
     tools: Optional[List[Dict[str, Any]]] = None, # Add tools parameter
     stream_callback: StreamCallback = None,
-    request_json_format: bool = False # Default to False now, tool usage implies structured output
-) -> Dict[str, Any]:
+    request_json_format: bool = False
+) -> Message | Dict[str, Any]: # Return type can be Message object or error Dict
     """
     Calls the Ollama API with the given model, prompt, and optional tools.
-    Supports streaming callbacks.
 
     Args:
         model_identifier: The name of the Ollama model to use.
@@ -40,12 +41,8 @@ def call_ollama(
                            Generally False when using tools, as the structure comes from tool calls.
 
     Returns:
-        The complete response message dictionary from the Ollama API.
-        This dictionary might contain 'content' or 'tool_calls'.
-        In case of errors, returns a dictionary representing a NoAction with an error reason.
-
-    Raises:
-        Exception: If the API call fails catastrophically (though most errors return the error dict).
+        The response Message object from the Ollama API on success.
+        A dictionary representing a NoAction with an error reason on failure.
     """
     logger.debug(f"Calling Ollama model '{model_identifier}'...")
     if tools:
@@ -71,22 +68,34 @@ def call_ollama(
             stream=False # Use non-streaming for tool calls for now
         )
 
-        # Log the raw response structure for debugging
-        logger.debug(f"Ollama raw response: {response}")
+        # Log the raw response structure and type for debugging
+        logger.debug(f"Ollama raw response type: {type(response)}")
+        logger.debug(f"Ollama raw response content: {response}")
 
-        # Check if the response structure is as expected
-        if isinstance(response, dict) and 'message' in response:
-             message_content = response['message']
-             # Log tool calls if present
-             if message_content.get('tool_calls'):
-                 logger.info(f"Ollama response contains tool calls: {message_content['tool_calls']}")
-             elif message_content.get('content'):
-                 logger.info(f"Ollama response contains content: {message_content['content'][:150]}...")
-             else:
-                  logger.warning("Ollama response message has neither content nor tool_calls.")
-             return response['message'] # Return the inner message dictionary
+        # Check if the response is a ChatResponse object and has a message attribute of type Message
+        if isinstance(response, ChatResponse) and hasattr(response, 'message') and isinstance(response.message, Message):
+            message_obj: Message = response.message # Access the message attribute
+            # Log tool calls or content if present
+            if message_obj.tool_calls:
+                logger.info(f"Ollama response contains tool calls: {message_obj.tool_calls}")
+            elif message_obj.content:
+                logger.info(f"Ollama response contains content: {message_obj.content[:150]}...")
+            else:
+                logger.warning("Ollama response Message object has neither content nor tool_calls.")
+            return message_obj # Return the Message object directly
         else:
-            logger.error(f"Unexpected response structure from Ollama: {response}")
+            # Log details about why the check failed
+            if not isinstance(response, ChatResponse): # Check for ChatResponse type first
+                logger.error(f"Ollama response is not a ChatResponse object. Type: {type(response)}, Content: {response}")
+            elif not hasattr(response, 'message'): # Check for message attribute
+                 logger.error(f"Ollama ChatResponse object is missing 'message' attribute. Content: {response}")
+            elif not isinstance(response.message, Message): # Check type of message attribute
+                # Log the specific type mismatch for the message attribute
+                logger.error(f"Attribute 'message' is not a Message object. Type: {type(response.message)}, Content: {response.message}")
+            else: # Should not be reachable if the main 'if' failed, but include for completeness
+                 logger.error(f"Unknown reason for failing response structure check. Response: {response}")
+
+            # Still return an ErrorAction dictionary on failure
             return ErrorAction(reason=f"Unexpected response structure from Ollama: {response}").to_dict()
 
 

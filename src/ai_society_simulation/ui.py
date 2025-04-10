@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.live import Live # Import Live here
+from rich.console import Group # Import Group
 
 logger = logging.getLogger(__name__)
 
@@ -45,28 +46,38 @@ class SimulationUI:
         return layout
 
     def _create_dashboard_panel(self, sim_state: Dict[str, Any]) -> Panel:
-        """Creates the dashboard panel with overall stats and agent summaries."""
+        """Creates the dashboard panel with overall stats, resources, and agent summaries."""
         tick = sim_state.get('tick_count', -1)
         agents = sim_state.get('agents', [])
         num_agents = len(agents)
         config = sim_state.get('config', {})
         forced_vote_interval = config.get('forced_vote_interval', 0)
+        environment_state = sim_state.get('environment', {})
+        resources = environment_state.get('resources', {})
 
-        # Start with general info
-        dashboard_content = Text()
-        dashboard_content.append(f"Tick: {tick}", style="bold")
+        # --- General Info ---
+        general_info = Text()
+        general_info.append(f"Tick: {tick}", style="bold")
         if forced_vote_interval > 0:
             next_forced_vote_tick = ((tick // forced_vote_interval) + 1) * forced_vote_interval
             is_forced = (tick % forced_vote_interval == 0)
-            dashboard_content.append(f" | Next Vote Check: {next_forced_vote_tick}", style="dim")
+            general_info.append(f" | Next Vote Check: {next_forced_vote_tick}", style="dim") # Append to general_info
             if is_forced:
-                 dashboard_content.append(" (NOW!)", style="bold yellow")
-        dashboard_content.append(f"\nTotal Agents: {num_agents}\n\n", style="bold")
-        dashboard_content.append("Agent Status:\n", style="bold underline")
+                 general_info.append(" (NOW!)", style="bold yellow")
+        general_info.append(f"\nTotal Agents: {num_agents}\n", style="bold")
 
-        # Add individual agent stats
+        # --- Resource Info ---
+        resource_info = Text("\nResources:\n", style="bold underline")
+        if resources:
+            resource_info.append(", ".join([f"{k}: {v:.1f}" for k, v in resources.items()]))
+        else:
+            resource_info.append("(None)", style="dim")
+        resource_info.append("\n") # Add spacing
+
+        # --- Agent Status ---
+        agent_status = Text("\nAgent Status:\n", style="bold underline")
         if not agents:
-            dashboard_content.append("(No agents active)", style="dim")
+            agent_status.append("(No agents active)", style="dim") # Append to agent_status
         else:
             for agent_data in agents:
                 agent_id = agent_data.get('agent_id', 'N/A')
@@ -91,16 +102,25 @@ class SimulationUI:
                             last_action_type = "PubKnow"
                         elif last_action_type == 'QueryKnowledgeAction':
                             last_action_type = "QueryKnow"
+                        elif last_action_type == 'GatherResourceAction':
+                            res = action_dict.get('resource_type', '?')
+                            last_action_type = f"Gather ({res[0]})" # Abbreviate
+                        elif last_action_type == 'ProposeAction':
+                            last_action_type = "Propose"
+                        elif last_action_type == 'VoteAction':
+                            last_action_type = "Vote"
                         break # Found the latest action
 
                 # Append agent line with color and generating status using styles
-                dashboard_content.append("- ", style="dim")
-                dashboard_content.append(agent_id, style=f"bold {color}")
-                dashboard_content.append(f": STM={stm_len}, LastAct={last_action_type}")
+                agent_status.append("- ", style="dim")
+                agent_status.append(agent_id, style=f"bold {color}")
+                agent_status.append(f": STM={stm_len}, LastAct={last_action_type}")
                 if is_generating:
-                    dashboard_content.append(" (thinking...)", style="dim italic") # Add indicator using style
-                dashboard_content.append("\n") # Add newline
+                    agent_status.append(" (thinking...)", style="dim italic") # Add indicator using style
+                agent_status.append("\n") # Add newline
 
+        # Combine sections using Group
+        dashboard_content = Group(general_info, resource_info, agent_status)
 
         return Panel(dashboard_content, title="Dashboard")
 
@@ -127,6 +147,7 @@ class SimulationUI:
 
             # Find the last action taken from memory (copied from dashboard logic)
             last_action_type = "N/A"
+            action_detail = ""
             for mem in reversed(stm):
                 if mem.get('type') == 'action_taken':
                     action_dict = mem.get('action', {})
@@ -135,16 +156,27 @@ class SimulationUI:
                     if last_action_type == 'NoAction':
                          reason = action_dict.get('reason')
                          if reason:
-                             last_action_type += f" ({reason[:15]}...)" if len(reason) > 15 else f" ({reason})"
+                             action_detail = f" ({reason[:15]}...)" if len(reason) > 15 else f" ({reason})" # Assign to action_detail
                     elif last_action_type == 'SendMessageAction':
                         content = action_dict.get('content', '')
-                        last_action_type += f" ({content[:15]}...)" if len(content) > 15 else f" ({content})"
+                        action_detail = f" ({content[:15]}...)" if len(content) > 15 else f" ({content})" # Assign to action_detail
                     elif last_action_type == 'PublishKnowledgeAction':
                         content = action_dict.get('content', '')
-                        last_action_type += f" ({content[:15]}...)" if len(content) > 15 else f" ({content})"
+                        action_detail = f" ({content[:15]}...)" if len(content) > 15 else f" ({content})" # Assign to action_detail
                     elif last_action_type == 'QueryKnowledgeAction':
                         query = action_dict.get('query', '')
-                        last_action_type += f" ({query[:15]}...)" if len(query) > 15 else f" ({query})"
+                        action_detail = f" ({query[:15]}...)" if len(query) > 15 else f" ({query})" # Assign to action_detail
+                    elif last_action_type == 'GatherResourceAction':
+                        res = action_dict.get('resource_type', '?')
+                        action_detail = f" ({res})" # Assign to action_detail
+                    elif last_action_type == 'ProposeAction':
+                        desc = action_dict.get('description', '')
+                        action_detail = f" ({desc[:15]}...)" if len(desc) > 15 else f" ({desc})"
+                    elif last_action_type == 'VoteAction':
+                        vote = action_dict.get('vote', '?')
+                        prop_id = action_dict.get('proposal_id', '?')
+                        action_detail = f" ({vote} on {prop_id})" # Assign to action_detail
+
                     break # Found the latest action
 
             # Use rich markup for color in the ID column for visibility
@@ -153,7 +185,7 @@ class SimulationUI:
                 f"[{color}]{color}[/]", # Display color name with its color
                 model,
                 stm_len,
-                f"{last_action_type}{' [dim](...)[/]' if is_generating else ''}" # Add indicator to last action
+                f"{last_action_type}{action_detail}{' [dim](...)[/]' if is_generating else ''}" # Add indicator to last action
             )
 
 
@@ -166,7 +198,6 @@ class SimulationUI:
             personality_texts.append(Text.from_markup(f"[{color}]{agent_id}[/]: {personality}"))
 
         # Combine table and personality text using Group or just appending to Panel content
-        from rich.console import Group # Import Group
         panel_content = Group(
             table,
             Text("\n--- Agent Personalities ---", style="bold underline"),

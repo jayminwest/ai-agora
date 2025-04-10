@@ -2,17 +2,17 @@
 
 import logging
 import random
-from typing import Dict, Any, List, Optional, Callable # Import Callable
-import os # Import os for path joining
-import json
-import os
-from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Callable
+import os
+import json
+import yaml # Import yaml
+from datetime import datetime, timezone
+from ollama import Message # Import Message
 
 from .agent import Agent
 from .environment import Environment
 from .llm_interface import call_ollama
-from .utils import load_prompts # Import the prompt loading utility
+from .utils import load_prompts
 
 logger = logging.getLogger(__name__)
 
@@ -39,15 +39,28 @@ class Simulation:
         self.config = config
         self.tick_count = 0
         self.agents: List[Agent] = []
-        self.environment: Environment = Environment()
+        # Add this line to store the path
+        self.knowledge_base_file_path: Optional[str] = None
         self.last_tick_summary: Optional[str] = None
         self.prompts: Dict[str, str] = {} # To store loaded prompts
+        self.resource_config = self.config.get('resources', {}) # Store resource config
 
-        # Load prompts first
         self._load_prompts()
 
-        # Load initial knowledge base *before* creating agents or adding system message
-        self._load_initial_knowledge_base()
+        # Determine KB path *before* initializing Environment
+        self._determine_kb_path() # New helper function call
+
+        # Pass the path and resource config to Environment constructor
+        self.environment: Environment = Environment(
+            knowledge_base_file_path=self.knowledge_base_file_path,
+            resource_config=self.resource_config # Pass resource config
+        )
+
+        # Load initial knowledge base *using the Environment's method*
+        self.environment.load_initial_knowledge() # Environment now handles loading
+
+        # Initialize resources using the Environment's method
+        self.environment.initialize_resources(self.resource_config.get('initial_levels', {}))
 
         self._initialize_agents_and_seed_message() # Separate agent creation
         logger.info(f"Simulation '{config.get('simulation_name', 'Unnamed')}' initialized.")
@@ -71,62 +84,34 @@ class Simulation:
             # Depending on desired behavior, could exit or raise a more specific exception
             raise RuntimeError(f"Failed to load prompts: {e}") from e
 
-    def _load_initial_knowledge_base(self) -> None:
-        """Loads initial knowledge items from a file specified in the config."""
+    # Add this new private method
+    def _determine_kb_path(self) -> None:
+        """Determines and stores the absolute path to the initial KB file."""
         kb_file_path_rel = self.config.get('initial_knowledge_base_file')
-        if not kb_file_path_rel:
-            logger.info("No initial knowledge base file specified in config. Skipping.")
-            return
+        if kb_file_path_rel:
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            self.knowledge_base_file_path = os.path.join(project_root, kb_file_path_rel)
+            logger.debug(f"Determined knowledge base file path: {self.knowledge_base_file_path}")
+        else:
+            self.knowledge_base_file_path = None
+            logger.debug("No initial knowledge base file specified in config.")
 
-        # Assume the path is relative to the project root (where config.yaml is)
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # Go up 3 levels from simulation.py
-        kb_file_path_abs = os.path.join(project_root, kb_file_path_rel)
-
-        logger.info(f"Attempting to load initial knowledge base from: {kb_file_path_abs}")
-        try:
-            with open(kb_file_path_abs, 'r', encoding='utf-8') as f:
-                initial_knowledge = json.load(f)
-
-            if not isinstance(initial_knowledge, list):
-                logger.error(f"Initial knowledge base file '{kb_file_path_abs}' does not contain a JSON list. Skipping load.")
-                return
-
-            # Validate and add items (simple validation for now)
-            valid_items = []
-            for i, item in enumerate(initial_knowledge):
-                if isinstance(item, dict) and 'content' in item:
-                    # Add minimal required fields if missing (timestamp, source, id)
-                    item.setdefault('timestamp', datetime.now(timezone.utc).isoformat())
-                    item.setdefault('source_agent_id', 'SystemInitial')
-                    item.setdefault('id', f'initial_{i}')
-                    valid_items.append(item)
-                else:
-                    logger.warning(f"Skipping invalid item at index {i} in initial knowledge file: {item}")
-
-            # Prepend initial knowledge so it appears older than runtime additions
-            self.environment.shared_knowledge_base = valid_items + self.environment.shared_knowledge_base
-            logger.info(f"Successfully loaded and prepended {len(valid_items)} items from initial knowledge base file.")
-
-        except FileNotFoundError:
-            logger.error(f"Initial knowledge base file not found: {kb_file_path_abs}. Skipping load.")
-        except json.JSONDecodeError as e:
-            logger.error(f"Error decoding JSON from initial knowledge base file '{kb_file_path_abs}': {e}. Skipping load.")
-        except Exception as e:
-            logger.exception(f"An unexpected error occurred while loading initial knowledge base: {e}")
-
+    # REMOVED the entire _load_initial_knowledge_base method from Simulation
 
     def _initialize_agents_and_seed_message(self) -> None:
         """Creates agents and adds the initial system message."""
-        logger.info("Initializing agents and seeding message...")
+        logger.info("Initializing agents, determining personality/role, and seeding message...")
         num_agents = self.config.get('initial_agents', 3) # Use the actual default from config.yaml
         model_tiers = self.config.get('model_tiers', ['phi3:mini']) # Default model
-        directives_pool = self.config.get('agent_directives_pool', ["Be productive."])
+        directives_pool = self.config.get('agent_directives_pool', ["Be productive."]) # Default model
 
         if not model_tiers:
             raise ValueError("Configuration must define at least one model in 'model_tiers'.")
         if not directives_pool:
              raise ValueError("Configuration must define at least one directive in 'agent_directives_pool'.")
 
+        # Create agents with initial IDs
+        temp_agents: List[Agent] = []
         for i in range(num_agents):
             agent_id = f"agent_{i}"
             # Assign model (simple assignment for MVP)
@@ -137,14 +122,41 @@ class Simulation:
             color = AGENT_COLORS[i % len(AGENT_COLORS)]
             # Pass the loaded prompts dictionary to the agent constructor
             agent = Agent(agent_id, model_id, initial_directives, self.prompts, color=color)
-            self.agents.append(agent)
-            logger.info(f"Created Agent: {agent_id} (Model: {model_id}, Color: {color}, Directives: {initial_directives})")
+            temp_agents.append(agent)
+            logger.info(f"Created Agent (initial): {agent_id} (Model: {model_id}, Color: {color}, Directives: {initial_directives})")
 
-        # --- Tick 0: Determine Personality (Agents now use loaded prompts) ---
-        logger.info("--- Starting Tick 0: Personality Determination ---")
-        for agent in self.agents:
+        # --- Tick 0: Determine Personality & Role ---
+        logger.info("--- Starting Tick 0: Personality & Role Determination ---")
+        final_agent_ids = set() # Track assigned IDs to prevent duplicates during init
+        self.agents = [] # Reset final agent list
+
+        for agent in temp_agents:
+            # 1. Determine Personality
             agent.determine_personality()
-        logger.info("--- Finished Tick 0: Personality Determination ---")
+
+            # 2. Determine Role (pass IDs assigned so far)
+            agent.determine_role(list(final_agent_ids))
+
+            # 3. Handle potential ID conflicts *after* determination attempt
+            # If determine_role failed or resulted in a conflict, agent_id might still be original or duplicate
+            final_id = agent.agent_id
+            original_proposed_id = final_id # Keep track if we modify it
+            counter = 1
+            while final_id.lower() in [aid.lower() for aid in final_agent_ids]:
+                final_id = f"{original_proposed_id}_{counter}"
+                counter += 1
+
+            if final_id != agent.agent_id:
+                 logger.warning(f"Initial role '{agent.agent_id}' conflicted or was invalid. Renaming agent to '{final_id}'.")
+                 agent.agent_id = final_id # Update agent's ID to the unique version
+
+            final_agent_ids.add(agent.agent_id) # Add the final, unique ID
+            self.agents.append(agent) # Add agent with final ID to the simulation list
+            logger.info(f"Agent finalized: ID='{agent.agent_id}', Color='{agent.color}', Personality='{agent.personality_and_motives[:50]}...'")
+
+
+        logger.info("--- Finished Tick 0: Personality & Role Determination ---")
+        logger.info(f"Final initialized agent IDs: {[a.agent_id for a in self.agents]}")
 
         # Environment is already initialized in __init__
 
@@ -174,6 +186,9 @@ class Simulation:
         agent_order = random.sample(self.agents, len(self.agents))
         logger.debug(f"Agent processing order: {[a.agent_id for a in agent_order]}")
 
+        # Get current agent IDs *before* processing agents for this tick
+        current_agent_ids = [a.agent_id for a in self.agents]
+
         for agent in agent_order:
             try:
                 logger.debug(f"Processing agent {agent.agent_id} for tick {self.tick_count}")
@@ -183,10 +198,11 @@ class Simulation:
 
                 # 1. Perceive
                 current_environment_state = self.environment.get_state()
-                # Add simulation tick info to the state passed to the agent
+                # Add simulation tick info AND current agent IDs to the state passed to the agent
                 current_environment_state['current_tick'] = self.tick_count
                 current_environment_state['is_forced_vote_tick'] = is_forced_vote_tick
                 current_environment_state['forced_vote_interval'] = forced_vote_interval # Pass interval for calculating next
+                current_environment_state['agent_ids'] = current_agent_ids # Add list of agent IDs
                 agent.perceive(current_environment_state)
 
                 # 2. Think & 3. Act (Combined in Agent.act method)
@@ -199,11 +215,16 @@ class Simulation:
                     # Agent.act now internally manages the is_generating flag during its execution
                     # but we set it before and clear it after here to ensure UI updates correctly
                     # around the entire agent turn.
+                    # Agent.act might change agent.agent_id internally
                     agent.act(self.environment) # Agent handles its own thinking and action execution
                 finally:
                     agent.is_generating = False # Ensure flag is cleared *after* act completes
                     if update_ui_callback:
                         update_ui_callback() # Update UI to show agent finished thinking
+
+                # Note: If an agent changes its ID mid-tick, the 'current_agent_ids' list
+                # passed to subsequent agents in the *same tick* will still contain the *old* ID.
+                # The change fully propagates in the *next* tick's perception phase. This is generally acceptable.
 
                 # 4. Update Memories (Handled within Agent methods now)
 
@@ -211,10 +232,11 @@ class Simulation:
                 logger.exception(f"Error processing agent {agent.agent_id} during tick {self.tick_count}: {e}")
                 # Decide how to handle agent errors - skip agent? halt simulation?
 
-        logger.info(f"--- Ending Tick {self.tick_count} ---")
+        # --- Environment Updates (End of Tick Actions) ---
+        self.environment.consume_agent_upkeep(len(self.agents)) # Consume upkeep after actions
+        closed_proposals_this_tick = self._process_proposals() # Process proposals after actions
 
-        # --- Proposal Management ---
-        closed_proposals_this_tick = self._process_proposals() # Get proposals closed this tick
+        logger.info(f"--- Ending Tick {self.tick_count} ---")
 
         # --- Tick Summarization ---
         if self.config.get('enable_tick_summary', False):
@@ -249,6 +271,9 @@ class Simulation:
         proposals_created_this_tick = [
             prop for prop in self.environment.proposals if prop.get('timestamp_proposed', '') >= tick_start_iso
         ]
+        # Gather resource changes (simplistic: just show current levels)
+        # TODO: Could track deltas for a more informative summary
+        current_resources = self.environment.resources
 
         # 2. Format context for the prompt
         message_summary_lines = []
@@ -264,6 +289,12 @@ class Simulation:
                 knowledge_summary_lines.append(f"- {item['source_agent_id']} added: {item['content'][:80]}...")
         else:
             knowledge_summary_lines.append("- None")
+
+        resource_summary_lines = []
+        if current_resources:
+             resource_summary_lines.append("- Current Levels: " + ", ".join(f"{k}={v:.1f}" for k, v in current_resources.items()))
+        else:
+             resource_summary_lines.append("- None")
 
         proposals_created_lines = []
         if proposals_created_this_tick:
@@ -285,6 +316,7 @@ class Simulation:
                 tick_number=self.tick_count,
                 messages_summary="\n".join(message_summary_lines),
                 knowledge_summary="\n".join(knowledge_summary_lines),
+                resource_summary="\n".join(resource_summary_lines), # Add resource summary
                 proposals_created_summary="\n".join(proposals_created_lines),
                 proposals_closed_summary="\n".join(proposals_closed_lines)
             )
@@ -301,12 +333,24 @@ class Simulation:
 
         # 4. Call LLM (requesting plain text)
         try:
-            summary_text = call_ollama(summarization_model, prompt, request_json_format=False)
+            # call_ollama returns a Message object or an error dict
+            response_obj = call_ollama(summarization_model, prompt, request_json_format=False)
 
-            # Clean up potential markdown or quotes
-            summary_text = summary_text.strip().strip('"').strip("'").strip()
-            if summary_text.startswith("```"):
-                 summary_text = summary_text.split('\n', 1)[1].rsplit('\n', 1)[0].strip() # Remove fences
+            if isinstance(response_obj, Message) and isinstance(response_obj.content, str):
+                summary_text = response_obj.content
+                # Clean up potential markdown or quotes
+                summary_text = summary_text.strip().strip('"').strip("'").strip()
+                if summary_text.startswith("```"):
+                     summary_text = summary_text.split('\n', 1)[1].rsplit('\n', 1)[0].strip() # Remove fences
+            elif isinstance(response_obj, dict): # Handle error dict
+                 error_reason = response_obj.get('reason', 'Unknown error')
+                 logger.error(f"Tick summary generation failed: LLM call returned error: {error_reason}")
+                 summary_text = f"Error generating summary: {error_reason}"
+            else: # Handle unexpected type or non-string content
+                 logger.error(f"Tick summary generation failed: Unexpected response type or content. Type: {type(response_obj)}, Content: {getattr(response_obj, 'content', 'N/A')}")
+                 summary_text = "Error generating summary: Unexpected response."
+
+            self.last_tick_summary = summary_text
 
             self.last_tick_summary = summary_text
             logger.info(f"Tick {self.tick_count} Summary: {summary_text}")
@@ -333,8 +377,14 @@ class Simulation:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Simulation':
         """Deserializes a simulation state from a dictionary."""
-        config = data["config"]
-        # Initialize simulation, which loads config and prompts automatically
+        # Use the config stored *within the save file*
+        config = data.get("config")
+        if not config:
+             # Fallback or error if config is missing in save file
+             logger.error("Save file is missing the 'config' section. Cannot load simulation.")
+             raise ValueError("Save file is missing the 'config' section.")
+
+        # Initialize simulation using the loaded config
         simulation = cls(config)
         simulation.tick_count = data.get("tick_count", 0)
         simulation.last_tick_summary = data.get("last_tick_summary")
@@ -354,7 +404,12 @@ class Simulation:
                 logger.error(f"Failed to load agent from data: {agent_data}. Error: {e}", exc_info=True)
                 # Decide how to handle: skip agent? stop loading?
 
-        simulation.environment = Environment.from_dict(data.get("environment", {}))
+        # Load environment state, passing the KB path determined from config
+        # Environment.from_dict now handles loading resource state and config
+        simulation.environment = Environment.from_dict(
+            data.get("environment", {}),
+            knowledge_base_file_path=simulation.knowledge_base_file_path # Pass the path
+        )
 
         # Ensure agent count matches config (or handle discrepancy) - Optional check
         if len(simulation.agents) != config.get('initial_agents'):

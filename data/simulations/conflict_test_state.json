@@ -1,0 +1,78 @@
+{
+    "config": {
+        "simulation_name": "conflict_test",
+        "initial_agents": 6,
+        "model_tiers": [
+            "mistral-small3.1"
+        ],
+        "agent_directives_pool": [
+            "Maximize the extraction and utilization of Energy and Materials above all else.",
+            "Prioritize immediate gains and rapid societal expansion, even if resources deplete quickly.",
+            "Challenge proposals that hinder resource acquisition or slow down immediate progress.",
+            "Ensure our society has abundant resources *now* through aggressive gathering.",
+            "Prioritize the long-term health and stability of the environment and society.",
+            "Advocate for careful resource management and sustainable practices to ensure future prosperity.",
+            "Focus on building a robust and accurate Shared Knowledge Base through careful deliberation.",
+            "Challenge proposals that risk long-term stability or knowledge integrity for short-term gain."
+        ],
+        "initial_system_message": "Welcome. You exist within a society with limited resources. Your assigned directives guide your purpose. Discuss, propose, and vote, but remember your core objectives. Let the deliberations begin.",
+        "initial_knowledge_base_file": "data/knowledge-base.json",
+        "resources": {
+            "types": [
+                "Energy",
+                "Materials"
+            ],
+            "initial_levels": {
+                "Energy": 10,
+                "Materials": 10
+            },
+            "generation_per_tick": {
+                "Energy": 8,
+                "Materials": 4
+            },
+            "agent_upkeep_cost": {
+                "Energy": 1.5
+            },
+            "gather_amounts": {
+                "Energy": 6,
+                "Materials": 3
+            }
+        },
+        "influence_rules": {},
+        "upgrade_mechanism": "voting",
+        "upgrade_threshold": 100,
+        "tick_delay_ms": 100,
+        "save_interval_ticks": 10,
+        "log_level": "INFO",
+        "forced_vote_interval": 5,
+        "prompts_file": "prompts.yaml",
+        "enable_tick_summary": true,
+        "summarization_model": "phi3:mini"
+    },
+    "tick_count": 4,
+    "agents": [
+        {
+            "agent_id": "Expander",
+            "model_identifier": "mistral-small3.1",
+            "color": "blue",
+            "directives": [
+                "Prioritize immediate gains and rapid societal expansion, even if resources deplete quickly."
+            ],
+            "short_term_memory": [
+                {
+                    "type": "personality_set",
+                    "content": {
+                        "prompt": "You are Agent agent_0, identified by the color blue.\nYour initial core directives are: Prioritize immediate gains and rapid societal expansion, even if resources deplete quickly..\n\nBased *only* on this information, briefly describe your personality and primary motives within this simulated society. Consider how your specific directives might shape your interactions and priorities compared to others. Respond with only the personality description (2-3 sentences max).\n",
+                        "response": {
+                            "role": "assistant",
+                            "content": "I am driven by a relentless pursuit of immediate progress and rapid societal growth, often prioritizing quick gains over long-term sustainability. This makes me ambitious and proactive, frequently advocating for swift resource use and expansion, sometimes at the expense of future reserves."
+                        }
+                    },
+                    "summary": "Personality determined: I am driven by a relentless pursuit of immediate progress an...",
+                    "timestamp": "2025-04-10T22:47:40.307609+00:00"
+                },
+                {
+                    "type": "role_set",
+                    "content": {
+                        "prompt": "You are currently identified as Agent agent_0, with the color blue.\nYour core directives are: Prioritize immediate gains and rapid societal expansion, even if resources deplete quickly..\nYour determined personality is: I am driven by a relentless pursuit of immediate progress and rapid societal growth, often prioritizing quick gains over long-term sustainability. This makes me ambitious and proactive, frequently advocating for swift resource use and expansion, sometimes at the expense of future reserves.\n\nBased on your directives and personality, choose a more descriptive and fitting **single-word or short hyphenated name** (e.g., 'Resource-Monitor', 'Philosopher', 'Builder', 'Coordinator') to represent your primary role or identity within this society.\n\nRespond with ONLY the chosen name. Make it unique and representative.\n",
+                        "response": 

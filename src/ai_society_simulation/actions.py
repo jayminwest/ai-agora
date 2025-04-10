@@ -3,6 +3,7 @@ Defines potential actions agents can take and their corresponding tool definitio
 for Ollama's tool calling feature.
 """
 import logging
+import dataclasses # Import the dataclasses module
 from dataclasses import dataclass, asdict, is_dataclass, fields
 from typing import Dict, Any, Type, Optional, Literal, List
 
@@ -61,6 +62,13 @@ class QueryKnowledgeAction(Action):
     """Represents the agent querying the shared knowledge base."""
     query: str # The search query string
 
+# --- Resource Actions ---
+@dataclass
+class GatherResourceAction(Action):
+    """Represents the agent attempting to gather a resource, increasing the global pool."""
+    resource_type: str # The type of resource to gather (e.g., "Energy", "Materials")
+    # Amount is determined by environment config for now
+
 # --- Proposal and Voting Actions ---
 
 ProposalType = Literal["general", "knowledge_add", "knowledge_modify", "knowledge_delete"]
@@ -81,15 +89,35 @@ class VoteAction(Action):
     proposal_id: str
     vote: Literal["yes", "no", "abstain"]
 
+# --- Role Change Action ---
+@dataclass
+class ChangeRoleAction(Action):
+    """Represents the agent changing its own displayed name/role."""
+    new_role: str # The desired new agent ID/name
 
 # --- Tool Definitions for Ollama ---
 
 # Helper to generate basic property schema from dataclass fields
 def _get_properties_from_dataclass(dc: Type[Action]) -> Dict[str, Any]:
     properties = {}
+    # Define known resource types here dynamically if possible, or hardcode for now
+    # This is tricky as the action definition doesn't know the config.
+    # For now, we'll make resource_type a generic string and rely on the prompt.
+    # A better approach might involve passing config to this function or using Literal dynamically.
+    known_resource_types = ["Energy", "Materials"] # Example, ideally get from config
+
     for field in fields(dc):
         field_type = field.type
         description = f"Parameter '{field.name}' for {dc.__name__}" # Basic description
+
+        # Special handling for GatherResourceAction.resource_type
+        if dc is GatherResourceAction and field.name == 'resource_type':
+             properties[field.name] = {
+                 "type": "string",
+                 "description": f"The type of resource to gather. Choose from available types like {', '.join(known_resource_types)}.",
+                 "enum": known_resource_types # Provide enum if possible
+             }
+             continue # Skip generic handling below
         # Basic type mapping (can be expanded)
         if field_type == str:
             properties[field.name] = {"type": "string", "description": description}
@@ -136,6 +164,18 @@ TOOLS_SCHEMA = [
                 "type": "object",
                 "properties": _get_properties_from_dataclass(NoAction),
                 "required": _get_required_fields(NoAction),
+            },
+        },
+    },
+     {
+        "type": "function",
+        "function": {
+            "name": "GatherResourceAction",
+            "description": "Attempt to gather a specific resource (e.g., Energy, Materials) to increase the global pool. Use when resources are needed for societal function or upkeep.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(GatherResourceAction),
+                "required": _get_required_fields(GatherResourceAction),
             },
         },
     },
@@ -225,6 +265,18 @@ TOOLS_SCHEMA = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ChangeRoleAction",
+            "description": "Change your own displayed name/role to something more descriptive or fitting for your current purpose or identity. Choose a unique name not already used by other agents.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(ChangeRoleAction),
+                "required": _get_required_fields(ChangeRoleAction),
+            },
+        },
+    },
 ]
 
 def get_tool_definitions() -> List[Dict[str, Any]]:
@@ -240,22 +292,14 @@ _ACTION_CLASSES = {
         SendMessageAction,
         PublishKnowledgeAction,
         QueryKnowledgeAction,
+        GatherResourceAction,
+        ChangeRoleAction, # Add new action
         ProposeAction,
         VoteAction,
     ]
 }
 # Add other action classes here as they are created
 
-
-def _get_action_class(action_type_str: str) -> Optional[Type[Action]]:
-    'NoAction': NoAction,
-    'SendMessageAction': SendMessageAction,
-    'PublishKnowledgeAction': PublishKnowledgeAction,
-    'QueryKnowledgeAction': QueryKnowledgeAction,
-    'ProposeAction': ProposeAction, # Register new action
-    'VoteAction': VoteAction,       # Register new action
-    # Add other action classes here as they are created
-}
 
 def _get_action_class(action_type_str: str) -> Optional[Type[Action]]:
     """Looks up an action class by its name."""
@@ -266,25 +310,32 @@ def _get_action_class(action_type_str: str) -> Optional[Type[Action]]:
 if __name__ == '__main__':
     no_act = NoAction(reason="Observing")
     send_act = SendMessageAction(content="Hello from agent!")
+    gather_act = GatherResourceAction(resource_type="Energy")
 
     no_act_dict = no_act.to_dict()
     send_act_dict = send_act.to_dict()
+    gather_act_dict = gather_act.to_dict()
 
     print("NoAction Dict:", no_act_dict)
     print("SendMessageAction Dict:", send_act_dict)
+    print("GatherResourceAction Dict:", gather_act_dict)
 
     # Test deserialization
     try:
         rehydrated_no_act = Action.from_dict(no_act_dict)
         rehydrated_send_act = Action.from_dict(send_act_dict)
+        rehydrated_gather_act = Action.from_dict(gather_act_dict)
         print("Rehydrated NoAction:", rehydrated_no_act)
         print("Rehydrated SendMessageAction:", rehydrated_send_act)
+        print("Rehydrated GatherResourceAction:", rehydrated_gather_act)
         assert isinstance(rehydrated_no_act, NoAction)
         assert isinstance(rehydrated_send_act, SendMessageAction)
+        assert isinstance(rehydrated_gather_act, GatherResourceAction)
         assert rehydrated_no_act.reason == "Observing"
         assert rehydrated_send_act.content == "Hello from agent!"
+        assert rehydrated_gather_act.resource_type == "Energy"
     except Exception as e:
         print(f"An error occurred during deserialization test: {e}")
 
 
-logger.info("Actions module loaded with core actions, proposal, and voting actions.")
+logger.info("Actions module loaded with core actions, proposal, voting, resource, and role change actions.")
