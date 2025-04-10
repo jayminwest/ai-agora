@@ -5,6 +5,7 @@ import time
 import yaml
 import os
 import sys
+import argparse # Add argparse import
 
 # Ensure the src directory is in the Python path
 # This allows importing modules like `ai_society_simulation.simulation`
