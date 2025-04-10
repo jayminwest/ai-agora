@@ -110,6 +110,8 @@ class Simulation:
         if not directives_pool:
              raise ValueError("Configuration must define at least one directive in 'agent_directives_pool'.")
 
+        # Create agents with initial IDs
+        temp_agents: List[Agent] = []
         for i in range(num_agents):
             agent_id = f"agent_{i}"
             # Assign model (simple assignment for MVP)
@@ -120,14 +122,41 @@ class Simulation:
             color = AGENT_COLORS[i % len(AGENT_COLORS)]
             # Pass the loaded prompts dictionary to the agent constructor
             agent = Agent(agent_id, model_id, initial_directives, self.prompts, color=color)
-            self.agents.append(agent)
-            logger.info(f"Created Agent: {agent_id} (Model: {model_id}, Color: {color}, Directives: {initial_directives})")
+            temp_agents.append(agent)
+            logger.info(f"Created Agent (initial): {agent_id} (Model: {model_id}, Color: {color}, Directives: {initial_directives})")
 
-        # --- Tick 0: Determine Personality (Agents now use loaded prompts) ---
-        logger.info("--- Starting Tick 0: Personality Determination ---")
-        for agent in self.agents:
+        # --- Tick 0: Determine Personality & Role ---
+        logger.info("--- Starting Tick 0: Personality & Role Determination ---")
+        final_agent_ids = set() # Track assigned IDs to prevent duplicates during init
+        self.agents = [] # Reset final agent list
+
+        for agent in temp_agents:
+            # 1. Determine Personality
             agent.determine_personality()
-        logger.info("--- Finished Tick 0: Personality Determination ---")
+
+            # 2. Determine Role (pass IDs assigned so far)
+            agent.determine_role(list(final_agent_ids))
+
+            # 3. Handle potential ID conflicts *after* determination attempt
+            # If determine_role failed or resulted in a conflict, agent_id might still be original or duplicate
+            final_id = agent.agent_id
+            original_proposed_id = final_id # Keep track if we modify it
+            counter = 1
+            while final_id.lower() in [aid.lower() for aid in final_agent_ids]:
+                final_id = f"{original_proposed_id}_{counter}"
+                counter += 1
+
+            if final_id != agent.agent_id:
+                 logger.warning(f"Initial role '{agent.agent_id}' conflicted or was invalid. Renaming agent to '{final_id}'.")
+                 agent.agent_id = final_id # Update agent's ID to the unique version
+
+            final_agent_ids.add(agent.agent_id) # Add the final, unique ID
+            self.agents.append(agent) # Add agent with final ID to the simulation list
+            logger.info(f"Agent finalized: ID='{agent.agent_id}', Color='{agent.color}', Personality='{agent.personality_and_motives[:50]}...'")
+
+
+        logger.info("--- Finished Tick 0: Personality & Role Determination ---")
+        logger.info(f"Final initialized agent IDs: {[a.agent_id for a in self.agents]}")
 
         # Environment is already initialized in __init__
 
