@@ -1,7 +1,7 @@
 """Defines the Agent class for the simulation."""
 
 import logging
-from typing import List, Dict, Any, Deque, TYPE_CHECKING, Optional # Added Optional
+from typing import List, Dict, Any, Deque, TYPE_CHECKING, Optional
 from collections import deque
 import json # Ensure json is imported
 from datetime import datetime, timezone # Import datetime and timezone
@@ -10,13 +10,40 @@ from datetime import datetime, timezone # Import datetime and timezone
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from .environment import Environment # Import for type hinting only
-    from .actions import Action # Import Action for type hinting
+    from .environment import Environment
+    from .actions import Action
+
+# --- Action List for Prompt ---
+# Define this once at the module level or load from config/prompts if needed
+# This ensures the prompt always shows the available actions consistently.
+_ACTION_LIST_PROMPT_SECTION = """
+1. Discuss / Converse:
+   {{"_action_type": "SendMessageAction", "content": "Your conversational message here."}}
+
+2. Propose Change (Requires Discussion First!):
+   - General Proposal: {{"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}}
+   - Add Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}}
+   - Modify Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_modify", "description": "Reason for modifying this knowledge.", "target_knowledge_id": "kb_xxxxxx", "new_content": "The updated knowledge content."}}
+   - Delete Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_delete", "description": "Reason for deleting this knowledge.", "target_knowledge_id": "kb_xxxxxx"}}
+
+3. Vote on Active Proposal:
+   {{"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"}} # Or "no", "abstain"
+
+4. Query Knowledge Base:
+   {{"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}}
+
+5. Record Agreed Fact (Use *after* proposal passes or for simple, undisputed facts):
+   {{"_action_type": "PublishKnowledgeAction", "content": "Factual statement or summary of passed proposal."}}
+
+6. Do Nothing (If no meaningful action is possible):
+   {{"_action_type": "NoAction", "reason": "Optional concise reason."}}
+"""
+
 
 class Agent:
     """Represents an individual agent in the simulation."""
 
-    def __init__(self, agent_id: str, model_identifier: str, initial_directives: List[str], color: str = "white"):
+    def __init__(self, agent_id: str, model_identifier: str, initial_directives: List[str], prompts: Dict[str, str], color: str = "white"):
         """
         Initializes an Agent.
 
@@ -24,11 +51,13 @@ class Agent:
             agent_id: A unique identifier for the agent.
             model_identifier: The identifier for the LLM model the agent uses.
             initial_directives: Initial core directives guiding the agent.
+            prompts: A dictionary containing the loaded prompt templates.
             color: The display color for the agent in the UI.
         """
         self.agent_id: str = agent_id
         self.model_identifier: str = model_identifier
         self.color: str = color
+        self.prompts: Dict[str, str] = prompts # Store loaded prompts
         self.directives: List[str] = initial_directives
         # More structured memory
         self.short_term_memory: Deque[Dict[str, Any]] = deque(maxlen=20) # Recent events
@@ -43,16 +72,22 @@ class Agent:
         Uses the LLM during initialization (Tick 0) to define its personality and motives.
         """
         logger.info(f"Agent {self.agent_id} ({self.color}) determining personality...")
-        from .llm_interface import call_ollama # Avoid circular import
+        from .llm_interface import call_ollama
 
-        # Simple prompt asking for personality based on initial info
-        prompt = (
-            f"You are Agent {self.agent_id}, identified by the color {self.color}.\n"
-            f"Your initial core directives are: {', '.join(self.directives)}.\n\n"
-            "Based *only* on this information, briefly describe your personality and primary motives within this simulated society. "
-            "Focus on how you might interact with others and approach discussions. "
-            "Respond with only the personality description (2-3 sentences max)."
+        # Retrieve the prompt template
+        prompt_template = self.prompts.get('agent_personality')
+        if not prompt_template:
+            logger.error(f"Agent {self.agent_id} ({self.color}) cannot determine personality: 'agent_personality' prompt template missing.")
+            self.personality_and_motives = "Failed to determine personality (prompt template missing)."
+            return
+
+        # Format the prompt
+        prompt = prompt_template.format(
+            agent_id=self.agent_id,
+            color=self.color,
+            directives_list=", ".join(self.directives) # Format directives as a string
         )
+        logger.debug(f"Agent {self.agent_id} personality prompt:\n{prompt}")
 
         try:
             response_text = call_ollama(
@@ -115,11 +150,29 @@ class Agent:
         Returns an Action object.
         """
         logger.debug(f"Agent {self.agent_id} ({self.color}) starting think cycle.")
-        from .llm_interface import call_ollama # Avoid circular import at module level
-        # Import necessary actions
-        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction
+        from .llm_interface import call_ollama
+        from .actions import Action, NoAction # Keep necessary action imports
 
-        prompt = self._build_prompt()
+        # Retrieve the prompt template
+        prompt_template = self.prompts.get('agent_thinking')
+        if not prompt_template:
+            logger.error(f"Agent {self.agent_id} ({self.color}) cannot think: 'agent_thinking' prompt template missing.")
+            return NoAction(reason="Critical error: Agent thinking prompt template is missing.")
+
+        # Build the context sections first
+        context_data = self._build_prompt_context()
+
+        # Format the main prompt template
+        try:
+            prompt = prompt_template.format(**context_data)
+        except KeyError as e:
+             logger.error(f"Agent {self.agent_id} ({self.color}) failed to format thinking prompt. Missing key: {e}. Context: {context_data}", exc_info=True)
+             return NoAction(reason=f"Critical error: Failed to format prompt template due to missing key '{e}'.")
+        except Exception as e:
+             logger.error(f"Agent {self.agent_id} ({self.color}) failed to format thinking prompt with context {context_data}: {e}", exc_info=True)
+             return NoAction(reason=f"Critical error: Failed to format prompt template: {e}")
+
+
         logger.debug(f"Agent {self.agent_id} ({self.color}) sending prompt to LLM: \n{prompt}")
 
         try:
@@ -480,24 +533,29 @@ class Agent:
             "model_identifier": self.model_identifier,
             "color": self.color,
             "directives": self.directives,
-            "short_term_memory": list(self.short_term_memory), # Convert deque to list for JSON
-            "personality_and_motives": self.personality_and_motives, # Save personality
-            "is_generating": self.is_generating, # Include transient generating state
+            "short_term_memory": list(self.short_term_memory),
+            "personality_and_motives": self.personality_and_motives,
+            "is_generating": self.is_generating,
             # knowledge_query_result is transient, not saved
+            # prompts are not saved, they are loaded from file at simulation start
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Agent':
-        """Deserializes an agent's state from a dictionary."""
+    def from_dict(cls, data: Dict[str, Any], prompts: Dict[str, str]) -> 'Agent':
+        """
+        Deserializes an agent's state from a dictionary.
+        Requires the loaded prompts dictionary to be passed in.
+        """
         agent = cls(
             agent_id=data["agent_id"],
             model_identifier=data["model_identifier"],
             initial_directives=data["directives"],
-            color=data.get("color", "white") # Load color or default
+            prompts=prompts, # Pass loaded prompts
+            color=data.get("color", "white")
         )
         # Restore short_term_memory deque
         # Use the default maxlen from the class definition if available
-        default_stm_maxlen = getattr(cls(agent_id="", model_identifier="", initial_directives=[]), 'short_term_memory', deque(maxlen=20)).maxlen
+        default_stm_maxlen = getattr(cls(agent_id="", model_identifier="", initial_directives=[], prompts={}), 'short_term_memory', deque(maxlen=20)).maxlen
         stm_maxlen = data.get("short_term_memory_maxlen", default_stm_maxlen) # Allow saving maxlen in future?
 
         loaded_stm_list = data.get("short_term_memory", [])

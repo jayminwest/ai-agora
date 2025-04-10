@@ -24,6 +24,7 @@ tick_delay_ms: 100 # Placeholder
 save_interval_ticks: 10 # How often to automatically save state
 log_level: INFO # Logging verbosity (DEBUG, INFO, WARNING, ERROR)
 forced_vote_interval: 5 # Ticks between forced voting prompts (0 to disable)
+prompts_file: prompts.yaml # Path to the YAML file containing LLM prompt templates (relative to project root)
 
 # Tick Summarization Configuration
 enable_tick_summary: true # Set to true to enable LLM-based tick summaries

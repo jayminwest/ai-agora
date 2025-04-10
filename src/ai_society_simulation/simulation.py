@@ -4,12 +4,15 @@ import logging
 import random
 from typing import Dict, Any, List, Optional, Callable # Import Callable
 import os # Import os for path joining
-import json # Import json for loading knowledge base
-from datetime import datetime, timezone # Import datetime and timezone
+import json
+import os
+from datetime import datetime, timezone
+from typing import Dict, Any, List, Optional, Callable
 
 from .agent import Agent
 from .environment import Environment
-from .llm_interface import call_ollama # Import call_ollama
+from .llm_interface import call_ollama
+from .utils import load_prompts # Import the prompt loading utility
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,11 @@ class Simulation:
         self.tick_count = 0
         self.agents: List[Agent] = []
         self.environment: Environment = Environment()
-        self.last_tick_summary: Optional[str] = None # To store the summary of the last tick
+        self.last_tick_summary: Optional[str] = None
+        self.prompts: Dict[str, str] = {} # To store loaded prompts
+
+        # Load prompts first
+        self._load_prompts()
 
         # Load initial knowledge base *before* creating agents or adding system message
         self._load_initial_knowledge_base()
@@ -45,8 +52,25 @@ class Simulation:
         self._initialize_agents_and_seed_message() # Separate agent creation
         logger.info(f"Simulation '{config.get('simulation_name', 'Unnamed')}' initialized.")
 
-    def _initialize_simulation(self) -> None:
-        """Sets up the initial state of the simulation (agents, environment)."""
+
+    def _load_prompts(self) -> None:
+        """Loads prompt templates from the file specified in the config."""
+        prompts_file_rel = self.config.get('prompts_file')
+        if not prompts_file_rel:
+            logger.error("Configuration missing 'prompts_file' key. Cannot load prompts.")
+            raise ValueError("Configuration missing 'prompts_file' key.")
+
+        # Assume the path is relative to the project root (where config.yaml is)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # Go up 3 levels
+        prompts_file_abs = os.path.join(project_root, prompts_file_rel)
+
+        try:
+            self.prompts = load_prompts(prompts_file_abs)
+        except (FileNotFoundError, yaml.YAMLError, ValueError) as e:
+            logger.critical(f"Failed to load critical prompts file '{prompts_file_abs}': {e}. Simulation cannot continue.", exc_info=True)
+            # Depending on desired behavior, could exit or raise a more specific exception
+            raise RuntimeError(f"Failed to load prompts: {e}") from e
+
     def _load_initial_knowledge_base(self) -> None:
         """Loads initial knowledge items from a file specified in the config."""
         kb_file_path_rel = self.config.get('initial_knowledge_base_file')
@@ -111,11 +135,12 @@ class Simulation:
             initial_directives = [random.choice(directives_pool)] # Give one random directive
             # Assign color
             color = AGENT_COLORS[i % len(AGENT_COLORS)]
-            agent = Agent(agent_id, model_id, initial_directives, color=color)
+            # Pass the loaded prompts dictionary to the agent constructor
+            agent = Agent(agent_id, model_id, initial_directives, self.prompts, color=color)
             self.agents.append(agent)
             logger.info(f"Created Agent: {agent_id} (Model: {model_id}, Color: {color}, Directives: {initial_directives})")
 
-        # --- Tick 0: Determine Personality ---
+        # --- Tick 0: Determine Personality (Agents now use loaded prompts) ---
         logger.info("--- Starting Tick 0: Personality Determination ---")
         for agent in self.agents:
             agent.determine_personality()
@@ -205,70 +230,78 @@ class Simulation:
             self.last_tick_summary = "Summarization skipped (no model configured)."
             return
 
+        # Retrieve the prompt template
+        prompt_template = self.prompts.get('tick_summary')
+        if not prompt_template:
+            logger.error(f"Cannot generate summary for tick {self.tick_count}: 'tick_summary' prompt template missing.")
+            self.last_tick_summary = "Summarization failed (prompt template missing)."
+            return
+
         # 1. Gather events from this tick
         tick_start_iso = tick_start_time.isoformat()
 
         messages_this_tick = [
-            msg for msg in self.environment.message_log
-            if msg.get('timestamp', '') >= tick_start_iso
+            msg for msg in self.environment.message_log if msg.get('timestamp', '') >= tick_start_iso
         ]
         knowledge_this_tick = [
-            item for item in self.environment.shared_knowledge_base
-            if item.get('timestamp', '') >= tick_start_iso
+            item for item in self.environment.shared_knowledge_base if item.get('timestamp', '') >= tick_start_iso
         ]
         proposals_created_this_tick = [
-            prop for prop in self.environment.proposals
-            if prop.get('timestamp_proposed', '') >= tick_start_iso
+            prop for prop in self.environment.proposals if prop.get('timestamp_proposed', '') >= tick_start_iso
         ]
-        # Votes are harder to filter by time directly, maybe summarize proposal status changes
 
-        # 2. Build the prompt
-        prompt_lines = [
-            f"Summarize the key events of simulation tick {self.tick_count} based on the following data.",
-            "Focus on agent actions, communication themes, new knowledge, and proposal outcomes.",
-            "Be concise (2-4 sentences). Do not use JSON format.",
-            "\n--- Messages ---"
-        ]
+        # 2. Format context for the prompt
+        message_summary_lines = []
         if messages_this_tick:
-            for msg in messages_this_tick[-10:]: # Limit messages in prompt
-                 prompt_lines.append(f"- {msg['sender_id']}: {msg['content'][:80]}...")
+            for msg in messages_this_tick[-10:]: # Limit messages
+                 message_summary_lines.append(f"- {msg['sender_id']}: {msg['content'][:80]}...")
         else:
-            prompt_lines.append("- None")
+            message_summary_lines.append("- None")
 
-        prompt_lines.append("\n--- Knowledge Published ---")
+        knowledge_summary_lines = []
         if knowledge_this_tick:
-            for item in knowledge_this_tick[-5:]: # Limit knowledge in prompt
-                prompt_lines.append(f"- {item['source_agent_id']} added: {item['content'][:80]}...")
+            for item in knowledge_this_tick[-5:]: # Limit knowledge
+                knowledge_summary_lines.append(f"- {item['source_agent_id']} added: {item['content'][:80]}...")
         else:
-            prompt_lines.append("- None")
+            knowledge_summary_lines.append("- None")
 
-        prompt_lines.append("\n--- Proposals Created ---")
+        proposals_created_lines = []
         if proposals_created_this_tick:
-            for prop in proposals_created_this_tick[-5:]: # Limit proposals in prompt
-                prompt_lines.append(f"- {prop['proposer_agent_id']} proposed ({prop['proposal_id']}): {prop['description'][:80]}...")
+            for prop in proposals_created_this_tick[-5:]: # Limit proposals created
+                proposals_created_lines.append(f"- {prop['proposer_agent_id']} proposed ({prop['proposal_id']}): {prop['description'][:80]}...")
         else:
-            prompt_lines.append("- None")
+            proposals_created_lines.append("- None")
 
-        prompt_lines.append("\n--- Proposals Closed ---")
+        proposals_closed_lines = []
         if closed_proposals:
-            for prop in closed_proposals[-5:]: # Limit proposals in prompt
-                prompt_lines.append(f"- Proposal {prop['proposal_id']} by {prop['proposer_agent_id']} finished with status: {prop['status']}")
+            for prop in closed_proposals[-5:]: # Limit proposals closed
+                proposals_closed_lines.append(f"- Proposal {prop['proposal_id']} by {prop['proposer_agent_id']} finished with status: {prop['status']}")
         else:
-            prompt_lines.append("- None")
+            proposals_closed_lines.append("- None")
 
-        prompt_lines.append("\nGenerate the summary:")
-        prompt = "\n".join(prompt_lines)
+        # 3. Format the main prompt
+        try:
+            prompt = prompt_template.format(
+                tick_number=self.tick_count,
+                messages_summary="\n".join(message_summary_lines),
+                knowledge_summary="\n".join(knowledge_summary_lines),
+                proposals_created_summary="\n".join(proposals_created_lines),
+                proposals_closed_summary="\n".join(proposals_closed_lines)
+            )
+        except KeyError as e:
+            logger.error(f"Failed to format tick summary prompt. Missing key: {e}", exc_info=True)
+            self.last_tick_summary = f"Summarization failed (prompt format error: missing key '{e}')."
+            return
+        except Exception as e:
+            logger.error(f"Failed to format tick summary prompt: {e}", exc_info=True)
+            self.last_tick_summary = f"Summarization failed (prompt format error: {e})."
+            return
+
         logger.debug(f"Summarization prompt for tick {self.tick_count}:\n{prompt}")
 
-        # 3. Call LLM (requesting plain text)
+        # 4. Call LLM (requesting plain text)
         try:
-            # Modify call_ollama if needed to explicitly handle non-JSON requests,
-            # but the current one should work if the model respects the prompt.
-            # We might need a separate function or flag if strict non-JSON is required.
-            # For now, assume the model follows instructions.
-            # NOTE: call_ollama currently forces JSON format in the request.
-            # We need to adapt it or create a variant. Let's adapt it for now.
-            summary_text = call_ollama(summarization_model, prompt, request_json_format=False) # Add flag
+            summary_text = call_ollama(summarization_model, prompt, request_json_format=False)
 
             # Clean up potential markdown or quotes
             summary_text = summary_text.strip().strip('"').strip("'").strip()
@@ -278,7 +311,7 @@ class Simulation:
             self.last_tick_summary = summary_text
             logger.info(f"Tick {self.tick_count} Summary: {summary_text}")
 
-            # 4. Add summary to environment message log
+            # 5. Add summary to environment message log
             self.environment.add_message("System", f"Tick {self.tick_count} Summary: {summary_text}")
 
         except Exception as e:
@@ -291,29 +324,32 @@ class Simulation:
         return {
             "config": self.config,
             "tick_count": self.tick_count,
-            "agents": [agent.to_dict() for agent in self.agents],
+            "agents": [agent.to_dict() for agent in self.agents], # Prompts are not saved in agent state
             "environment": self.environment.to_dict(),
-            "last_tick_summary": self.last_tick_summary, # Save summary
+            "last_tick_summary": self.last_tick_summary,
+            # Prompts are not saved, they are loaded from file via config
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Simulation':
         """Deserializes a simulation state from a dictionary."""
         config = data["config"]
-        simulation = cls(config) # Re-initializes based on config
+        # Initialize simulation, which loads config and prompts automatically
+        simulation = cls(config)
         simulation.tick_count = data.get("tick_count", 0)
-        simulation.last_tick_summary = data.get("last_tick_summary") # Load summary
+        simulation.last_tick_summary = data.get("last_tick_summary")
 
         # Re-create agents and environment from saved state
         loaded_agents_data = data.get("agents", [])
-        simulation.agents = []
+        simulation.agents = [] # Clear agents created by __init__
         for i, agent_data in enumerate(loaded_agents_data):
             try:
                 # Ensure color is loaded if present, otherwise assign default based on index
                 if 'color' not in agent_data:
                      agent_data['color'] = AGENT_COLORS[i % len(AGENT_COLORS)]
                      logger.warning(f"Agent {agent_data.get('agent_id', 'Unknown')} loaded without color, assigning default: {agent_data['color']}")
-                simulation.agents.append(Agent.from_dict(agent_data))
+                # Pass the already loaded prompts to the agent's from_dict method
+                simulation.agents.append(Agent.from_dict(agent_data, simulation.prompts))
             except Exception as e:
                 logger.error(f"Failed to load agent from data: {agent_data}. Error: {e}", exc_info=True)
                 # Decide how to handle: skip agent? stop loading?
