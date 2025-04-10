@@ -71,11 +71,16 @@ def call_ollama(
             stream=False # Use non-streaming for tool calls for now
         )
 
-        # Log the raw response structure for debugging
-        logger.debug(f"Ollama raw response: {response}")
+        # Log the raw response structure and type for debugging
+        logger.debug(f"Ollama raw response type: {type(response)}")
+        logger.debug(f"Ollama raw response content: {response}")
 
         # Check if the response structure is as expected
-        if isinstance(response, dict) and 'message' in response:
+        is_dict = isinstance(response, dict)
+        has_message = 'message' in response if is_dict else False
+        logger.debug(f"Response check: is_dict={is_dict}, has_message={has_message}")
+
+        if is_dict and has_message:
              message_content = response['message']
              # Log tool calls if present
              if message_content.get('tool_calls'):
