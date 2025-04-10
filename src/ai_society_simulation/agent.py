@@ -100,10 +100,6 @@ class Agent:
         mem_count = 0
         for mem in reversed(self.memory):
             if mem_count < 5: # Limit memories in prompt
-                prompt += f"- {mem.get('summary', str(mem))}\n" # Use summary if available
-                mem_count += 1
-            else:
-            if mem_count < 5: # Limit memories in prompt
                 # Try to represent memory concisely
                 mem_type = mem.get('type', 'memory')
                 mem_content = mem.get('content', str(mem))
