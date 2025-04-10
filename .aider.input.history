@@ -358,3 +358,184 @@
 
 # 2025-04-10 12:10:01.697096
 +Update paths so that we have the correct dir struct
+
+# 2025-04-10 12:10:34.500728
++/add src/
+
+# 2025-04-10 12:10:36.145872
++There
+
+# 2025-04-10 12:11:00.106253
++/run mv src/ai_society_simulation/main.py main.py
+
+# 2025-04-10 12:11:00.106306
++/run mv src/ai_society_simulation/main.py main.py
+
+# 2025-04-10 12:11:00.894645
++/run mkdir -p data/simulations
+
+# 2025-04-10 12:11:00.894777
++/run mkdir -p data/simulations
+
+# 2025-04-10 12:11:01.693802
++/run mkdir -p tests
+
+# 2025-04-10 12:11:01.693932
++/run mkdir -p tests
+
+# 2025-04-10 12:11:02.486173
++/run touch src/ai_society_simulation/__init__.py
+
+# 2025-04-10 12:11:02.486281
++/run touch src/ai_society_simulation/__init__.py
+
+# 2025-04-10 12:11:03.276211
++/run touch tests/__init__.py
+
+# 2025-04-10 12:11:03.276355
++/run touch tests/__init__.py
+
+# 2025-04-10 12:11:17.665121
++/ask Cool, what's next?
+
+# 2025-04-10 12:12:04.775462
++(venv) jaymin@Jaymins-Mac-Pro ai-society % python main.py 
++Traceback (most recent call last):
++  File "/Users/jaymin/Projects/ai-society/main.py", line 5, in <module>
++    import yaml
++ModuleNotFoundError: No module named 'yaml'
+
+# 2025-04-10 12:12:27.118146
++n
+
+# 2025-04-10 12:13:01.266990
++/run pip install -r requirements.txt
+
+# 2025-04-10 12:13:06.351320
++/run python main.py
+
+# 2025-04-10 12:13:08.146340
++What's wrong? Fix
+
+# 2025-04-10 12:13:17.125317
++/run tree
+
+# 2025-04-10 12:13:24.026600
++/run tree -I vevn
+
+# 2025-04-10 12:13:26.964421
++/run tree -I venv
+
+# 2025-04-10 12:13:32.351113
++/run python main.py
+
+# 2025-04-10 12:13:34.017819
++What's wrong? Fix
+
+# 2025-04-10 12:13:51.680689
++n
+
+# 2025-04-10 12:14:03.110320
++/run python main.py
+
+# 2025-04-10 12:14:14.387029
++/add src/ai_society_simulation/main.py
+
+# 2025-04-10 12:14:15.773428
++There
+
+# 2025-04-10 12:14:26.230108
++/run python main.py
+
+# 2025-04-10 12:14:26.230427
++/run python main.py
+
+# 2025-04-10 12:14:35.019569
++/celar
+
+# 2025-04-10 12:14:36.106780
++/clear
+
+# 2025-04-10 12:14:39.650563
++/run tree -I venv
+
+# 2025-04-10 12:14:42.813041
++/run python main.py
+
+# 2025-04-10 12:14:44.219726
++What's wrong? Fix
+
+# 2025-04-10 12:15:00.661442
++/run rm src/ai_society_simulation/main.py
+
+# 2025-04-10 12:15:00.661786
++/run rm src/ai_society_simulation/main.py
+
+# 2025-04-10 12:15:02.392017
++/run python main.py
+
+# 2025-04-10 12:15:02.392316
++/run python main.py
+
+# 2025-04-10 12:16:09.733358
++/clear
+
+# 2025-04-10 12:16:11.117901
++/run python main.py
+
+# 2025-04-10 12:16:28.035261
++ask Does that seem to be working?
+
+# 2025-04-10 12:18:20.768838
++/add project-plan.md
+
+# 2025-04-10 12:18:25.549698
++/ask What's next in the project plan?
+
+# 2025-04-10 12:18:41.094215
++/architect Build the rich UI
+
+# 2025-04-10 12:18:44.909856
++/clear
+
+# 2025-04-10 12:18:48.250599
++/run tree -I venv
+
+# 2025-04-10 12:19:01.796548
++/run tree -I venv __pycache__
+
+# 2025-04-10 12:19:03.686308
++n
+
+# 2025-04-10 12:19:13.254847
++/run tree -I venv src/ai_society_simulation/__pycache__
+
+# 2025-04-10 12:19:21.480889
++/run tree -I venv 
+
+# 2025-04-10 12:19:23.589057
++/clear
+
+# 2025-04-10 12:19:24.998887
++/run tree -I venv 
+
+# 2025-04-10 12:19:36.064598
++/architect Create the rich cli
+
+# 2025-04-10 12:20:28.021857
++a
+
+# 2025-04-10 12:21:06.850079
++/add src/ai_society_simulation/ui.py
+
+# 2025-04-10 12:21:18.010753
++That looks good, however, there is still being ouput being printed outside of the UI
+
+# 2025-04-10 12:22:15.660602
++Awesome. Now make it persistent and allow me to move onto the next tick manually from the UI. I like how the UI looks right now, just make it persistent and add some simple commands
+
+# 2025-04-10 12:23:16.231688
++Update project-plan.md with our progress thus far. Only update relevant sections, dont remove any info
+
+# 2025-04-10 12:23:52.686567
++s
