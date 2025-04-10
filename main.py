@@ -115,3 +115,11 @@ if __name__ == "__main__":
     save_state(simulation.to_dict(), save_filename)
 
     logger.info("--- AI Society Simulation MVP End ---")
+import sys
+import os
+
+# Add the src directory to the Python path
+project_root = os.path.dirname(os.path.abspath(__file__))
+src_path = os.path.join(project_root, 'src')
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
