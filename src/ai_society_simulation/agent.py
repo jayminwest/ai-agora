@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Deque, TYPE_CHECKING, Optional
 from collections import deque
 import json # Ensure json is imported
 from datetime import datetime, timezone # Import datetime and timezone
+from ollama import Message # Import the Message class
 
 # Configure logging
 logger = logging.getLogger(__name__)
