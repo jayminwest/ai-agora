@@ -218,26 +218,26 @@ class Agent:
             return NoAction(reason=f"Exception during think cycle: {e}")
 
 
-    def _build_prompt(self) -> str:
-        """Constructs the prompt for the LLM based on current state and memory."""
-        prompt_lines = [
-            f"You are Agent {self.agent_id}, identified by the color {self.color}.",
-            "Your goal is to engage in meaningful conversation with other agents.", # Added goal
-            "Your core directives are:",
-            "\n".join(f"- {d}" for d in self.directives),
-            "\n--- Recent Activity & Context ---"
-        ]
+    def _build_prompt_context(self) -> Dict[str, str]:
+        """Constructs the dynamic context parts for the main thinking prompt."""
+        context = {}
+
+        # Agent Info
+        context['agent_id'] = self.agent_id
+        context['color'] = self.color
+        context['directives_list'] = "\n".join(f"- {d}" for d in self.directives)
 
         # Retrieve active proposals stored during perceive()
         active_proposals = getattr(self, '_last_perceived_proposals', [])
 
-        # 1. Add results from the last knowledge query, if any
-        if self.knowledge_query_result is not None: # Check if None or empty list
-            prompt_lines.append("\nResults from your last Knowledge Base query:")
+        # 1. Knowledge Query Results
+        query_lines = []
+        if self.knowledge_query_result is not None:
+            query_lines.append("Results from your last Knowledge Base query:")
             if not self.knowledge_query_result:
-                prompt_lines.append("- Your query returned no results.")
+                query_lines.append("- Your query returned no results.")
             else:
-                for item in self.knowledge_query_result: # Already newest first from query function
+                for item in self.knowledge_query_result:
                     ts = item.get('timestamp', '?:??')
                     source = item.get('source_agent_id', '?')
                     content = item.get('content', '')
@@ -247,110 +247,98 @@ class Agent:
                         else: ts_dt = datetime.fromisoformat(ts)
                         ts_formatted = ts_dt.strftime('%H:%M:%S')
                     except ValueError: ts_formatted = ts
-                    prompt_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
-            prompt_lines.append("") # Add spacing
+                    query_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
+        else:
+            query_lines.append("Results from your last Knowledge Base query:")
+            query_lines.append("- (You haven't queried the knowledge base recently)")
+        context['knowledge_query_results_context'] = "\n".join(query_lines)
 
-        # 2. Add recent messages from perception (from STM)
+        # 2. Recent Messages
+        message_lines = []
         recent_messages: Optional[List[Dict[str, Any]]] = None
-        # Find the latest perception in short_term_memory
         for mem in reversed(self.short_term_memory):
             if mem.get('type') == 'perception':
                 recent_messages = mem.get('content', {}).get('recent_messages')
-                break # Found the latest perception
-
+                break
         if recent_messages:
-            prompt_lines.append("\nRecent messages in the environment (newest first):")
             if not recent_messages:
-                 prompt_lines.append("- (No recent messages observed)")
+                 message_lines.append("- (No recent messages observed)")
             else:
-                # Display newest first, limit count for prompt
-                for msg in reversed(recent_messages[-5:]): # Show last 5 perceived messages
+                for msg in reversed(recent_messages[-5:]): # Show last 5
                     ts = msg.get('timestamp', '?:??')
                     sender = msg.get('sender_id', '?')
                     content = msg.get('content', '')
-                    # Format timestamp for readability if possible
                     try:
-                        # Handle potential timezone info (Z or +HH:MM)
-                        if ts.endswith('Z'):
-                            ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                        else:
-                            ts_dt = datetime.fromisoformat(ts)
+                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        else: ts_dt = datetime.fromisoformat(ts)
                         ts_formatted = ts_dt.strftime('%H:%M:%S')
-                    except ValueError:
-                        ts_formatted = ts # Keep original if format fails
-                    prompt_lines.append(f"- [{ts_formatted}] {sender}: {content}")
-            prompt_lines.append("\nConsider responding to the latest messages or continuing the discussion.") # Added suggestion
+                    except ValueError: ts_formatted = ts
+                    message_lines.append(f"- [{ts_formatted}] {sender}: {content}")
+            message_lines.append("\nConsider responding to the latest messages or continuing the discussion.")
         else:
-             prompt_lines.append("\nRecent messages in the environment:")
-             prompt_lines.append("- (No recent messages observed). You could start a conversation.")
+             message_lines.append("- (No recent messages observed). You could start a conversation.")
+        context['recent_messages_context'] = "\n".join(message_lines)
 
-        # 3. Add recent knowledge from perception (from STM)
+        # 3. Recent Knowledge
+        knowledge_lines = []
         recent_knowledge: Optional[List[Dict[str, Any]]] = None
-        # Find the latest perception in short_term_memory again (or reuse if stored)
         for mem in reversed(self.short_term_memory):
             if mem.get('type') == 'perception':
                 recent_knowledge = mem.get('content', {}).get('recent_knowledge')
-                break # Found the latest perception
-
-        prompt_lines.append("\nRecent items in the Shared Knowledge Base (newest first):")
+                break
         if recent_knowledge:
             if not recent_knowledge:
-                prompt_lines.append("- (No recent knowledge items observed)")
+                knowledge_lines.append("- (No recent knowledge items observed)")
             else:
-                 # Display newest first, limit count for prompt
-                for item in reversed(recent_knowledge[-3:]): # Show last 3 perceived knowledge items
+                for item in reversed(recent_knowledge[-3:]): # Show last 3
                     ts = item.get('timestamp', '?:??')
                     source = item.get('source_agent_id', '?')
                     content = item.get('content', '')
-                    item_id = item.get('id', '?')[:8] # Show first 8 chars of ID
-                    # Format timestamp for readability if possible
+                    item_id = item.get('id', '?')[:8]
                     try:
-                        if ts.endswith('Z'):
-                            ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                        else:
-                            ts_dt = datetime.fromisoformat(ts)
+                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        else: ts_dt = datetime.fromisoformat(ts)
                         ts_formatted = ts_dt.strftime('%H:%M:%S')
-                    except ValueError:
-                        ts_formatted = ts # Keep original if format fails
-                    prompt_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
+                    except ValueError: ts_formatted = ts
+                    knowledge_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
         else:
-            prompt_lines.append("- (Could not retrieve recent knowledge from perception memory)")
+            knowledge_lines.append("- (Could not retrieve recent knowledge from perception memory)")
+        context['recent_knowledge_context'] = "\n".join(knowledge_lines)
 
-
-        # 4. Add last few short-term memories (actions, thoughts, etc.)
-        prompt_lines.append("\nYour recent internal activity (newest first, excluding perceptions):")
+        # 4. Internal Activity
+        internal_lines = []
         internal_mems_added = 0
         for mem in reversed(self.short_term_memory):
             mem_type = mem.get('type', 'memory')
-            # Exclude perceptions here as environment state is handled above
-            if mem_type != 'perception' and internal_mems_added < 5: # Show slightly more internal context
+            if mem_type != 'perception' and internal_mems_added < 5:
                 summary = mem.get('summary', '[No summary]')
-                prompt_lines.append(f"- ({mem_type}) {summary}")
+                internal_lines.append(f"- ({mem_type}) {summary}")
                 internal_mems_added += 1
-            if internal_mems_added >= 5: # Stop after adding enough internal memories
-                break
+            if internal_mems_added >= 5: break
         if internal_mems_added == 0:
-            prompt_lines.append("- (No recent internal activity)")
+            internal_lines.append("- (No recent internal activity)")
+        context['internal_activity_context'] = "\n".join(internal_lines)
 
-        # 5. Add Active Proposals
-        prompt_lines.append("\n--- Active Proposals ---")
+        # 5. Active Proposals
+        proposal_lines = []
         if not active_proposals:
-            prompt_lines.append("- (No active proposals)")
+            proposal_lines.append("- (No active proposals)")
         else:
-            prompt_lines.append("Review these proposals and consider voting:")
+            proposal_lines.append("Review these proposals and consider voting:")
             for prop in active_proposals:
                 prop_id = prop.get('proposal_id', '?')
                 proposer = prop.get('proposer_agent_id', '?')
                 desc = prop.get('description', '?')
                 prop_type = prop.get('proposal_type', 'general')
                 votes = prop.get('votes', {})
-                my_vote = votes.get(self.agent_id, 'Not Voted') # Check if I voted
+                my_vote = votes.get(self.agent_id, 'Not Voted')
                 vote_summary = f"Votes: {sum(1 for v in votes.values() if v=='yes')} Yes, {sum(1 for v in votes.values() if v=='no')} No"
-                prompt_lines.append(f"- ID: {prop_id} (Type: {prop_type}) By: {proposer}")
-                prompt_lines.append(f"  Desc: {desc}")
-                prompt_lines.append(f"  Status: {vote_summary} (Your Vote: {my_vote})")
+                proposal_lines.append(f"- ID: {prop_id} (Type: {prop_type}) By: {proposer}")
+                proposal_lines.append(f"  Desc: {desc}")
+                proposal_lines.append(f"  Status: {vote_summary} (Your Vote: {my_vote})")
+        context['active_proposals_context'] = "\n".join(proposal_lines)
 
-        # 6. Get Tick Info from last perception
+        # 6. Tick Info & Voting Context
         current_tick = -1
         is_forced_vote_tick = False
         forced_vote_interval = 0
@@ -360,91 +348,39 @@ class Agent:
                 is_forced_vote_tick = mem.get('content', {}).get('is_forced_vote_tick', False)
                 forced_vote_interval = mem.get('content', {}).get('forced_vote_interval', 0)
                 break
+        context['current_tick'] = str(current_tick)
 
-        # 7. Action Instructions
-        prompt_lines.extend([
-            "\n--- Your Task ---",
-            f"Current Simulation Tick: {current_tick}.",
-        ])
+        voting_context_lines = []
         if forced_vote_interval > 0:
             next_forced_vote_tick = ((current_tick // forced_vote_interval) + 1) * forced_vote_interval
-            prompt_lines.append(f"The next mandatory voting check is at Tick {next_forced_vote_tick}.")
-
-        prompt_lines.extend([
-            "Based on your directives and the context provided above (messages, knowledge, proposals), decide your next single action.",
-            "Your primary goal is societal progress through discussion, deliberation, and collective action via proposals.",
-            "The **Shared Knowledge Base** represents the society's agreed-upon facts and structures. Changes to it **MUST** be made through the proposal system.",
-            "",
-            "--- Key Principles ---",
-            "1. **Discuss First:** Use `SendMessageAction` to explore ideas, ask questions, gauge interest, and build consensus *before* making formal proposals, especially for knowledge changes.",
-            "2. **Propose for Change:** Use `ProposeAction` to suggest specific additions, modifications, or deletions to the Knowledge Base, or other societal rules/structures. Ensure proposals are clear, actionable, and ideally discussed first.",
-            "3. **Vote Decisively:** Use `VoteAction` to participate in collective decisions. Voting is **essential** for societal progress and modifying the shared knowledge.",
-            "4. **Query Before Acting:** Use `QueryKnowledgeAction` to check the Knowledge Base *before* proposing additions/modifications to avoid duplicates or contradictions.",
-            "5. **Record Outcomes:** Use `PublishKnowledgeAction` *primarily* to record factual summaries or outcomes *after* a relevant proposal has been discussed and **passed**.",
-            "",
-            "--- Your Task ---",
-            f"Current Simulation Tick: {current_tick}.",
-        ])
-        if forced_vote_interval > 0:
-            next_forced_vote_tick = ((current_tick // forced_vote_interval) + 1) * forced_vote_interval
-            prompt_lines.append(f"The next mandatory voting check is at Tick {next_forced_vote_tick}.")
-
-        prompt_lines.extend([
-            "Review the context (messages, knowledge, proposals) and choose your **single best action** according to the principles above.",
-        ])
+            voting_context_lines.append(f"The next mandatory voting check is at Tick {next_forced_vote_tick}.")
+        context['voting_context_summary'] = "\n".join(voting_context_lines)
 
 
-        # Voting Logic (Mandatory Check and General Consideration)
+        # 7. Voting Instructions
+        voting_instruction_lines = []
         can_vote = False
-        unvoted_proposals = []
         if active_proposals:
             my_votes = {p.get('proposal_id'): p.get('votes', {}).get(self.agent_id) for p in active_proposals}
             unvoted_proposals = [p for p in active_proposals if my_votes.get(p.get('proposal_id')) is None]
             if unvoted_proposals:
                 can_vote = True
 
-        # Add voting prompts based on whether it's a forced check and if voting is possible
         if can_vote:
             if is_forced_vote_tick:
-                prompt_lines.append("**MANDATORY VOTE CHECK:** It's time for a voting check. You SHOULD prioritize using `VoteAction` on at least one active proposal you haven't voted on (see list above).")
+                voting_instruction_lines.append("**MANDATORY VOTE CHECK:** It's time for a voting check. You SHOULD prioritize using `VoteAction` on at least one active proposal you haven't voted on (see list above).")
             else:
-                # General encouragement to vote even if not mandatory tick
-                prompt_lines.append("Remember to participate: Consider using `VoteAction` on active proposals you haven't voted on yet.")
+                voting_instruction_lines.append("Remember to participate: Consider using `VoteAction` on active proposals you haven't voted on yet.")
         elif is_forced_vote_tick:
-             prompt_lines.append("**MANDATORY VOTE CHECK:** No proposals require your vote currently. Proceed with another action.")
-        # No message needed if not forced tick and no proposals to vote on.
+             voting_instruction_lines.append("**MANDATORY VOTE CHECK:** No proposals require your vote currently. Proceed with another action.")
+        context['voting_instructions'] = "\n".join(voting_instruction_lines)
 
-        prompt_lines.extend([
-            "", # Add spacing
-            "Choose ONE action and respond ONLY with the corresponding JSON object (no explanations, preamble, or markdown formatting):",
-            "",
-            "1. Discuss / Converse:",
-            '   {"_action_type": "SendMessageAction", "content": "Your conversational message here."}',
-            "",
-            "2. Propose Change (Requires Discussion First!):",
-            '   - General Proposal: {"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}',
-            '   - Add Knowledge: {"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}',
-            '   - Modify Knowledge: {"_action_type": "ProposeAction", "proposal_type": "knowledge_modify", "description": "Reason for modifying this knowledge.", "target_knowledge_id": "kb_xxxxxx", "new_content": "The updated knowledge content."}',
-            '   - Delete Knowledge: {"_action_type": "ProposeAction", "proposal_type": "knowledge_delete", "description": "Reason for deleting this knowledge.", "target_knowledge_id": "kb_xxxxxx"}',
-            "",
-            "3. Vote on Active Proposal:",
-            '   {"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"}', # Or "no", "abstain"
-            "",
-            "4. Query Knowledge Base:",
-            '   {"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}',
-            "",
-            "5. Record Agreed Fact (Use *after* proposal passes or for simple, undisputed facts):",
-            '   {"_action_type": "PublishKnowledgeAction", "content": "Factual statement or summary of passed proposal."}',
-            "",
-            "6. Do Nothing (If no meaningful action is possible):",
-            '   {"_action_type": "NoAction", "reason": "Optional concise reason."}',
-            "",
-            "Your JSON response:"
-        ])
+        # 8. Action List (using the constant defined earlier)
+        context['action_list'] = _ACTION_LIST_PROMPT_SECTION
 
         # TODO: Implement token counting and context window management more robustly
 
-        return "\n".join(prompt_lines)
+        return context
 
 
     def act(self, environment: 'Environment') -> 'Action':
