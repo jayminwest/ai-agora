@@ -2,7 +2,7 @@
 
 import logging
 import random
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable # Import Callable
 import os # Import os for path joining
 import json # Import json for loading knowledge base
 from datetime import datetime, timezone # Import datetime and timezone
