@@ -1,12 +1,13 @@
 """Defines the Agent class for the simulation."""
 
 import logging
-from typing import List, Dict, Any, Deque, TYPE_CHECKING, Optional
+from typing import List, Dict, Any, Deque, TYPE_CHECKING, Optional, Union
 from collections import deque
 import json # Ensure json is imported
 from datetime import datetime, timezone # Import datetime and timezone
 import re # Import re for cleaning role names
 from ollama import Message # Import the Message class
+import uuid # For generating unique IDs for goals and plans
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -23,6 +24,187 @@ from .actions import (
     QueryKnowledgeAction, ProposeAction, VoteAction, GatherResourceAction,
     ChangeRoleAction # Import new action
 )
+
+
+class Goal:
+    """Represents a goal for an agent in the simulation."""
+    
+    def __init__(
+        self,
+        description: str,
+        priority: int = 1,
+        derived_from: str = "directive",
+        status: str = "active",
+        created_tick: int = 0,
+        due_tick: Optional[int] = None,
+        progress: Union[float, str] = 0.0,
+        goal_id: Optional[str] = None
+    ):
+        """
+        Initializes a Goal.
+        
+        Args:
+            description: A text description of the goal
+            priority: How important this goal is (higher number = higher priority)
+            derived_from: What directive or experience this goal came from
+            status: Current status (active, completed, abandoned)
+            created_tick: When the goal was created (simulation tick)
+            due_tick: When the goal should be completed by (if applicable)
+            progress: A numeric (0.0-1.0) or descriptive measure of progress
+            goal_id: A unique identifier for the goal (auto-generated if None)
+        """
+        self.goal_id = goal_id if goal_id else str(uuid.uuid4())
+        self.description = description
+        self.priority = priority
+        self.derived_from = derived_from
+        self.status = status
+        self.created_tick = created_tick
+        self.due_tick = due_tick
+        self.progress = progress
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes the goal to a dictionary."""
+        return {
+            "goal_id": self.goal_id,
+            "description": self.description,
+            "priority": self.priority,
+            "derived_from": self.derived_from,
+            "status": self.status,
+            "created_tick": self.created_tick,
+            "due_tick": self.due_tick,
+            "progress": self.progress
+        }
+        
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Goal':
+        """Deserializes a goal from a dictionary."""
+        return cls(
+            description=data["description"],
+            priority=data.get("priority", 1),
+            derived_from=data.get("derived_from", "directive"),
+            status=data.get("status", "active"),
+            created_tick=data.get("created_tick", 0),
+            due_tick=data.get("due_tick"),
+            progress=data.get("progress", 0.0),
+            goal_id=data.get("goal_id")
+        )
+        
+    def update_progress(self, new_progress: Union[float, str]) -> None:
+        """Update the progress of this goal."""
+        self.progress = new_progress
+        if isinstance(new_progress, (int, float)) and new_progress >= 1.0:
+            self.status = "completed"
+            
+    def mark_completed(self) -> None:
+        """Mark this goal as completed."""
+        self.status = "completed"
+        if isinstance(self.progress, (int, float)):
+            self.progress = 1.0
+        else:
+            self.progress = "completed"
+            
+    def mark_abandoned(self, reason: str = "") -> None:
+        """Mark this goal as abandoned."""
+        self.status = "abandoned"
+        if isinstance(self.progress, str):
+            self.progress = f"abandoned: {reason}" if reason else "abandoned"
+            
+    def is_active(self) -> bool:
+        """Check if the goal is currently active."""
+        return self.status == "active"
+    
+    def __str__(self) -> str:
+        """String representation of the goal."""
+        return f"Goal({self.goal_id[:8]}: {self.description[:30]}{'...' if len(self.description) > 30 else ''})"
+
+
+class Plan:
+    """Represents an action plan to achieve a goal."""
+    
+    def __init__(
+        self,
+        goal_id: str,
+        steps: List[str],
+        current_step: int = 0,
+        status: str = "pending",
+        plan_id: Optional[str] = None
+    ):
+        """
+        Initializes a Plan.
+        
+        Args:
+            goal_id: The ID of the goal this plan is for
+            steps: A list of planned action descriptions
+            current_step: The index of the current step being executed
+            status: Current status of the plan (pending, in_progress, completed, failed)
+            plan_id: A unique identifier for the plan (auto-generated if None)
+        """
+        self.plan_id = plan_id if plan_id else str(uuid.uuid4())
+        self.goal_id = goal_id
+        self.steps = steps
+        self.current_step = current_step
+        self.status = status
+        
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes the plan to a dictionary."""
+        return {
+            "plan_id": self.plan_id,
+            "goal_id": self.goal_id,
+            "steps": self.steps,
+            "current_step": self.current_step,
+            "status": self.status
+        }
+        
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Plan':
+        """Deserializes a plan from a dictionary."""
+        return cls(
+            goal_id=data["goal_id"],
+            steps=data["steps"],
+            current_step=data.get("current_step", 0),
+            status=data.get("status", "pending"),
+            plan_id=data.get("plan_id")
+        )
+    
+    def start(self) -> None:
+        """Mark the plan as in progress."""
+        self.status = "in_progress"
+        
+    def advance(self) -> bool:
+        """
+        Advance to the next step in the plan.
+        
+        Returns:
+            bool: True if there are more steps, False if plan is completed
+        """
+        if self.current_step < len(self.steps) - 1:
+            self.current_step += 1
+            return True
+        else:
+            self.status = "completed"
+            return False
+            
+    def fail(self, reason: str = "") -> None:
+        """Mark the plan as failed."""
+        self.status = f"failed: {reason}" if reason else "failed"
+        
+    def get_current_step_description(self) -> Optional[str]:
+        """Get the description of the current step."""
+        if 0 <= self.current_step < len(self.steps):
+            return self.steps[self.current_step]
+        return None
+    
+    def is_complete(self) -> bool:
+        """Check if the plan is completed."""
+        return self.status == "completed"
+    
+    def is_active(self) -> bool:
+        """Check if the plan is currently active (in progress)."""
+        return self.status == "in_progress"
+    
+    def __str__(self) -> str:
+        """String representation of the plan."""
+        return f"Plan({self.plan_id[:8]}, Goal: {self.goal_id[:8]}, Status: {self.status}, Step: {self.current_step+1}/{len(self.steps)})"
 
 
 class Agent:
@@ -175,572 +357,4 @@ class Agent:
 
             new_role = None
             error_reason = "Unknown error" # Default error reason
-            if isinstance(response_obj, Message) and isinstance(response_obj.content, str):
-                # Clean up response: remove quotes, extra spaces, ensure basic validity
-                role_text = response_obj.content.strip().strip('"').strip("'").strip()
-                # Basic sanitization: allow letters, numbers, hyphens, limit length
-                role_text = re.sub(r'[^\w-]', '', role_text) # Remove invalid chars
-                role_text = role_text[:30] # Limit length
-
-                if role_text:
-                    new_role = role_text
-                else:
-                    logger.warning(f"Agent {self.agent_id} proposed an empty or invalid role name after cleaning: '{response_obj.content}'. Keeping original ID.")
-                    error_reason = "Invalid role name proposed"
-            elif isinstance(response_obj, dict):
-                error_reason = response_obj.get('reason', 'Unknown LLM error')
-                logger.error(f"Agent {self.agent_id} failed role determination. LLM Error: {error_reason}")
-            else:
-                error_reason = "Unexpected LLM response type"
-                logger.error(f"Agent {self.agent_id} failed role determination. Error: {error_reason}")
-
-            if new_role:
-                # Check for uniqueness (case-insensitive) against *already assigned* IDs
-                if new_role.lower() in [aid.lower() for aid in existing_agent_ids]:
-                    logger.warning(f"Agent {self.agent_id} proposed role '{new_role}' which is already taken. Keeping original ID.")
-                    self.update_memories({
-                        "type": "role_determination_error",
-                        "content": {"prompt": prompt, "response": response_obj, "proposed_role": new_role, "error": "Role name conflict"},
-                        "summary": f"Proposed role '{new_role}' conflicted. Kept '{self.agent_id}'."
-                    })
-                else:
-                    old_id = self.agent_id
-                    self.agent_id = new_role # Update the agent's ID
-                    logger.info(f"Agent {old_id} ({self.color}) determined role and changed ID to: {self.agent_id}")
-                    self.update_memories({
-                        "type": "role_set",
-                        "content": {"prompt": prompt, "response": response_obj, "old_id": old_id, "new_id": self.agent_id},
-                        "summary": f"Role determined. ID changed from '{old_id}' to '{self.agent_id}'."
-                    })
-            else:
-                # Log failure if new_role wasn't set
-                 self.update_memories({
-                    "type": "role_determination_error",
-                    "content": {"prompt": prompt, "response": response_obj, "error": error_reason},
-                    "summary": f"Failed to determine role ({error_reason}). Kept '{self.agent_id}'."
-                })
-
-        except Exception as e:
-            logger.exception(f"Agent {self.agent_id} encountered an unexpected error during role determination: {e}")
-            # Keep original ID on error
-            self.update_memories({
-                "type": "role_determination_error",
-                "content": {"prompt": prompt, "error": str(e)},
-                "summary": f"Failed to determine role (exception). Kept '{self.agent_id}'."
-            })
-
-    def perceive(self, environment_state: Dict[str, Any]) -> None:
-        """
-        Processes the current state of the environment.
-        Stores the perception in memory.
-        """
-        logger.debug(f"Agent {self.agent_id} ({self.color}) perceiving environment.")
-        # Store perception in memory, including recent messages
-        # Store perception in memory, including recent messages and knowledge
-        # Clear previous query result before new perception
-
-        # Store the list of agent IDs from the state passed by Simulation
-        self.last_known_agent_ids = environment_state.get('agent_ids', [])
-        self.knowledge_query_result = None
-
-        num_msgs = len(environment_state.get('recent_messages', []))
-        num_knowledge = len(environment_state.get('recent_knowledge', []))
-        num_proposals = len(environment_state.get('active_proposals', []))
-        num_resources = len(environment_state.get('global_resources', {}))
-        current_tick = environment_state.get('current_tick', -1)
-        is_forced_vote = environment_state.get('is_forced_vote_tick', False)
-
-        perception_summary = f"Perceived environment at Tick {current_tick}: {len(self.last_known_agent_ids)} agents, {num_msgs} msgs, {num_knowledge} knowledge, {num_proposals} proposals, {num_resources} resource types."
-        if is_forced_vote:
-            perception_summary += " (Forced Vote Tick)"
-
-        # Store the entire perceived state, including agent IDs
-        self.update_memories({
-            "type": "perception",
-            "content": environment_state, # Contains agent_ids now
-            "summary": perception_summary
-        })
-        # Store active proposals separately for easier access in _build_prompt
-        self._last_perceived_proposals = environment_state.get('active_proposals', [])
-        logger.debug(f"Agent {self.agent_id} ({self.color}): {perception_summary}. Known IDs: {self.last_known_agent_ids}")
-
-
-    def think(self) -> 'Action':
-        """
-        Uses the LLM to decide on the next action based on memory and directives.
-        Returns an Action object.
-        """
-        logger.debug(f"Agent {self.agent_id} ({self.color}) starting think cycle using tool calling.")
-        from .llm_interface import call_ollama
-
-        # Retrieve the prompt template
-        prompt_template = self.prompts.get('agent_thinking') # Prompt now instructs to use tools
-        if not prompt_template:
-            logger.error(f"Agent {self.agent_id} ({self.color}) cannot think: 'agent_thinking' prompt template missing.")
-            return NoAction(reason="Critical error: Agent thinking prompt template is missing.")
-
-        # Build the context sections first
-        context_data = self._build_prompt_context()
-
-        # Format the main prompt template
-        try:
-            prompt = prompt_template.format(**context_data)
-        except KeyError as e:
-             logger.error(f"Agent {self.agent_id} ({self.color}) failed to format thinking prompt. Missing key: {e}. Context: {context_data}", exc_info=True)
-             return NoAction(reason=f"Critical error: Failed to format prompt template due to missing key '{e}'.")
-        except Exception as e:
-             logger.error(f"Agent {self.agent_id} ({self.color}) failed to format thinking prompt with context {context_data}: {e}", exc_info=True)
-             return NoAction(reason=f"Critical error: Failed to format prompt template: {e}")
-
-
-        logger.debug(f"Agent {self.agent_id} ({self.color}) sending prompt to LLM with tools.")
-
-        # Get tool definitions
-        tools = get_tool_definitions()
-
-        try:
-            # Call LLM with tools, get back a Message object or an error dictionary
-            response_obj = call_ollama(
-                self.model_identifier,
-                prompt,
-                tools=tools
-                # request_json_format=False (default when using tools)
-            )
-            logger.debug(f"Agent {self.agent_id} ({self.color}) received LLM response object: {response_obj}")
-
-            # Check if the response is a Message object (success) or dict (error)
-            if not isinstance(response_obj, Message):
-                 # Handle error dictionary from call_ollama
-                error_reason = response_obj.get('reason', 'Unknown error from LLM call.') if isinstance(response_obj, dict) else "Unknown LLM response type"
-                logger.error(f"Agent {self.agent_id} ({self.color}) failed think cycle. LLM call returned error: {error_reason}")
-                self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_obj, "error": "LLM call failed"}, "summary": f"Think cycle failed ({error_reason})."})
-                return NoAction(reason=f"LLM call failed: {error_reason}")
-
-            # --- Process successful Message object ---
-            logger.debug(f"Agent {self.agent_id} received successful Message object: Role={response_obj.role}, Content='{response_obj.content[:50]}...', ToolCalls={response_obj.tool_calls}")
-            tool_calls = response_obj.tool_calls # Access attribute directly
-
-            # Prepare response data for logging memory
-            response_data_for_log = {
-                "role": response_obj.role,
-                "content": response_obj.content,
-                "tool_calls": response_obj.tool_calls
-            }
-
-            if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
-                logger.debug(f"Agent {self.agent_id} detected tool calls: {tool_calls}")
-                # Process the first tool call
-                # TODO: Handle multiple tool calls if needed in the future
-                tool_call = tool_calls[0]
-                tool_name = tool_call.get('function', {}).get('name')
-                tool_args = tool_call.get('function', {}).get('arguments')
-
-                if not tool_name or not isinstance(tool_args, dict):
-                    logger.error(f"Agent {self.agent_id} ({self.color}) received invalid tool call structure: {tool_call}. Defaulting to NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": "Invalid tool call structure"}, "summary": "Thought resulted in invalid tool call"})
-                    return NoAction(reason="Invalid tool call structure received from LLM.")
-
-                # Find the corresponding action class
-                action_cls = _get_action_class(tool_name)
-                if not action_cls:
-                    logger.error(f"Agent {self.agent_id} ({self.color}) received call for unknown tool '{tool_name}'. Defaulting to NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"Unknown tool name: {tool_name}"}, "summary": f"Thought called unknown tool: {tool_name}"})
-                    return NoAction(reason=f"LLM called unknown tool: {tool_name}")
-
-                # Try to instantiate the action with the provided arguments
-                try:
-                    # TODO: Add validation of arguments against the tool schema if needed
-                    action = action_cls(**tool_args)
-                    logger.info(f"Agent {self.agent_id} ({self.color}) decided action via tool call: {action_cls.__name__}({tool_args})")
-                    # Store the thought process leading to the action
-                    self.update_memories({"type": "thought", "content": {"prompt": prompt, "response": response_data_for_log, "action": action.to_dict()}, "summary": f"Decided action via tool: {action.__class__.__name__}"})
-                    return action
-                except TypeError as e:
-                    logger.error(f"Agent {self.agent_id} ({self.color}) failed to create action {tool_name} from tool args {tool_args}: {e}. Defaulting to NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"TypeError creating action: {e}"}, "summary": f"Tool call arg mismatch for {tool_name}"})
-                    return NoAction(reason=f"LLM tool call arguments mismatch for {tool_name}: {e}")
-                except Exception as e:
-                     logger.error(f"Agent {self.agent_id} ({self.color}) failed unexpectedly creating action {tool_name} from tool args {tool_args}: {e}. Defaulting to NoAction.", exc_info=True)
-                     self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"Exception creating action: {e}"}, "summary": f"Error creating action {tool_name}"})
-                     return NoAction(reason=f"Error creating action {tool_name} from tool call: {e}")
-
-            else:
-                logger.debug(f"Agent {self.agent_id} detected NO tool calls in the response.")
-                # No tool call was made, check for content or treat as NoAction
-                response_content = response_obj.content # Access attribute
-                if response_content:
-                    logger.debug(f"Agent {self.agent_id} detected content response instead of tool call: '{response_content[:100]}...'")
-                    # LLM responded with text instead of a tool call.
-                    # Interpret this as a SendMessageAction for now.
-                    logger.info(f"Agent {self.agent_id} ({self.color}) LLM responded with content instead of tool call. Interpreting as SendMessageAction.")
-                    action = SendMessageAction(content=response_content)
-                    self.update_memories({"type": "thought", "content": {"prompt": prompt, "response": response_data_for_log, "action": action.to_dict(), "interpretation": "Inferred SendMessageAction from content response"}, "summary": f"Inferred SendMessageAction from content"})
-                    return action
-                else:
-                    # Empty response or unexpected structure
-                    logger.warning(f"Agent {self.agent_id} ({self.color}) LLM response had no tool calls and no content. Performing NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": "Empty LLM response"}, "summary": "Thought resulted in empty response"})
-                    return NoAction(reason="LLM response was empty.")
-
-        except Exception as e:
-            # Catch errors during the call_ollama itself or unexpected issues
-            logger.exception(f"Agent {self.agent_id} ({self.color}) encountered an unexpected error during think cycle: {e}")
-            # Note: response_obj might not be defined if error happened before call_ollama
-            response_data_for_log = str(response_obj) if 'response_obj' in locals() else "LLM call not completed"
-            self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"Outer think cycle exception: {e}"}, "summary": "Think cycle failed unexpectedly"})
-            return NoAction(reason=f"Exception during think cycle: {e}")
-
-
-    def _build_prompt_context(self) -> Dict[str, str]:
-        """Constructs the dynamic context parts for the main thinking prompt."""
-        context = {}
-
-        # Agent Info
-        context['agent_id'] = self.agent_id
-        context['color'] = self.color
-        context['directives_list'] = "\n".join(f"- {d}" for d in self.directives)
-        context['personality'] = self.personality_and_motives # Add personality
-        context['agent_ids_list'] = ", ".join(self.last_known_agent_ids) # Add current agent IDs
-
-        # Retrieve active proposals stored during perceive()
-        active_proposals = getattr(self, '_last_perceived_proposals', [])
-
-        # Retrieve last perception memory content
-        last_perception_content = {}
-        for mem in reversed(self.short_term_memory):
-            if mem.get('type') == 'perception':
-                last_perception_content = mem.get('content', {})
-                break
-
-        # 1. Knowledge Query Results
-        query_lines = []
-        if self.knowledge_query_result is not None:
-            query_lines.append("Results from your last Knowledge Base query:")
-            if not self.knowledge_query_result:
-                query_lines.append("- Your query returned no results.")
-            else:
-                for item in self.knowledge_query_result:
-                    ts = item.get('timestamp', '?:??')
-                    source = item.get('source_agent_id', '?')
-                    content = item.get('content', '')
-                    item_id = item.get('id', '?')[:8]
-                    try:
-                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                        else: ts_dt = datetime.fromisoformat(ts)
-                        ts_formatted = ts_dt.strftime('%H:%M:%S')
-                    except ValueError: ts_formatted = ts
-                    query_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
-        else:
-            query_lines.append("Results from your last Knowledge Base query:")
-            query_lines.append("- (You haven't queried the knowledge base recently)")
-        context['knowledge_query_results_context'] = "\n".join(query_lines)
-
-        # 2. Recent Messages
-        message_lines = []
-        recent_messages: Optional[List[Dict[str, Any]]] = None
-        for mem in reversed(self.short_term_memory):
-            if mem.get('type') == 'perception':
-                recent_messages = mem.get('content', {}).get('recent_messages')
-                break
-        if recent_messages:
-            if not recent_messages:
-                 message_lines.append("- (No recent messages observed)")
-            else:
-                for msg in reversed(recent_messages[-5:]): # Show last 5
-                    ts = msg.get('timestamp', '?:??')
-                    sender = msg.get('sender_id', '?')
-                    content = msg.get('content', '')
-                    try:
-                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                        else: ts_dt = datetime.fromisoformat(ts)
-                        ts_formatted = ts_dt.strftime('%H:%M:%S')
-                    except ValueError: ts_formatted = ts
-                    message_lines.append(f"- [{ts_formatted}] {sender}: {content}")
-            message_lines.append("\nConsider responding to the latest messages or continuing the discussion.")
-        else:
-             message_lines.append("- (No recent messages observed). You could start a conversation.")
-        context['recent_messages_context'] = "\n".join(message_lines)
-
-        # 3. Recent Knowledge
-        knowledge_lines = []
-        recent_knowledge: Optional[List[Dict[str, Any]]] = None
-        for mem in reversed(self.short_term_memory):
-            if mem.get('type') == 'perception':
-                recent_knowledge = mem.get('content', {}).get('recent_knowledge')
-                break
-        if recent_knowledge:
-            if not recent_knowledge:
-                knowledge_lines.append("- (No recent knowledge items observed)")
-            else:
-                for item in reversed(recent_knowledge[-3:]): # Show last 3
-                    ts = item.get('timestamp', '?:??')
-                    source = item.get('source_agent_id', '?')
-                    content = item.get('content', '')
-                    item_id = item.get('id', '?')[:8]
-                    try:
-                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                        else: ts_dt = datetime.fromisoformat(ts)
-                        ts_formatted = ts_dt.strftime('%H:%M:%S')
-                    except ValueError: ts_formatted = ts
-                    knowledge_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
-        else:
-            knowledge_lines.append("- (Could not retrieve recent knowledge from perception memory)")
-        context['recent_knowledge_context'] = "\n".join(knowledge_lines)
-
-        # 4. Global Resources
-        resource_lines = []
-        global_resources = last_perception_content.get('global_resources')
-        if global_resources is not None: # Check if key exists
-            if not global_resources:
-                resource_lines.append("- (No global resources tracked)")
-            else:
-                resource_lines.extend([f"- {res_type}: {level:.1f}" for res_type, level in global_resources.items()])
-        else:
-             resource_lines.append("- (Could not retrieve resource levels from perception memory)")
-        context['resource_context'] = "\n".join(resource_lines)
-
-
-        # 5. Internal Activity
-        internal_lines = []
-        internal_mems_added = 0
-        for mem in reversed(self.short_term_memory):
-            mem_type = mem.get('type', 'memory')
-            if mem_type != 'perception' and internal_mems_added < 5:
-                summary = mem.get('summary', '[No summary]')
-                internal_lines.append(f"- ({mem_type}) {summary}")
-                internal_mems_added += 1
-            if internal_mems_added >= 5: break
-        if internal_mems_added == 0:
-            internal_lines.append("- (No recent internal activity)")
-        context['internal_activity_context'] = "\n".join(internal_lines)
-
-        # 6. Active Proposals
-        proposal_lines = []
-        if not active_proposals:
-            proposal_lines.append("- (No active proposals)")
-        else:
-            proposal_lines.append("Review these proposals and consider voting:")
-            for prop in active_proposals:
-                prop_id = prop.get('proposal_id', '?')
-                proposer = prop.get('proposer_agent_id', '?')
-                desc = prop.get('description', '?')
-                prop_type = prop.get('proposal_type', 'general')
-                votes = prop.get('votes', {})
-                my_vote = votes.get(self.agent_id, 'Not Voted')
-                vote_summary = f"Votes: {sum(1 for v in votes.values() if v=='yes')} Yes, {sum(1 for v in votes.values() if v=='no')} No"
-                proposal_lines.append(f"- ID: {prop_id} (Type: {prop_type}) By: {proposer}")
-                proposal_lines.append(f"  Desc: {desc}")
-                proposal_lines.append(f"  Status: {vote_summary} (Your Vote: {my_vote})")
-        context['active_proposals_context'] = "\n".join(proposal_lines)
-
-        # 7. Tick Info & Voting Context
-        # Retrieve these from the last_perception_content found earlier
-        current_tick = last_perception_content.get('current_tick', -1)
-        is_forced_vote_tick = last_perception_content.get('is_forced_vote_tick', False)
-        forced_vote_interval = last_perception_content.get('forced_vote_interval', 0)
-        context['current_tick'] = str(current_tick)
-
-        voting_context_lines = []
-        if forced_vote_interval > 0:
-            next_forced_vote_tick = ((current_tick // forced_vote_interval) + 1) * forced_vote_interval
-            voting_context_lines.append(f"The next mandatory voting check is at Tick {next_forced_vote_tick}.")
-        context['voting_context_summary'] = "\n".join(voting_context_lines)
-
-
-        # 8. Voting Instructions
-        voting_instruction_lines = []
-        can_vote = False
-        if active_proposals:
-            my_votes = {p.get('proposal_id'): p.get('votes', {}).get(self.agent_id) for p in active_proposals}
-            unvoted_proposals = [p for p in active_proposals if my_votes.get(p.get('proposal_id')) is None]
-            if unvoted_proposals:
-                can_vote = True
-
-        if can_vote:
-            if is_forced_vote_tick:
-                voting_instruction_lines.append("**MANDATORY VOTE CHECK:** It's time for a voting check. You SHOULD prioritize using `VoteAction` on at least one active proposal you haven't voted on (see list above).")
-            else:
-                voting_instruction_lines.append("Remember to participate: Consider using `VoteAction` on active proposals you haven't voted on yet.")
-        elif is_forced_vote_tick:
-             voting_instruction_lines.append("**MANDATORY VOTE CHECK:** No proposals require your vote currently. Proceed with another action.")
-        context['voting_instructions'] = "\n".join(voting_instruction_lines)
-
-        # 9. Action List (REMOVED - Tools are passed via API now)
-        # context['action_list'] = _ACTION_LIST_PROMPT_SECTION
-
-        # TODO: Implement token counting and context window management more robustly
-        # TODO: Consider adding tool descriptions or a summary to the context if helpful for the LLM?
-
-        return context
-
-
-    def act(self, environment: 'Environment') -> 'Action':
-        """
-        Thinks to decide an action, executes it, updates memory, and returns the action.
-        Execution logic for QueryKnowledgeAction is handled here to store results.
-        """
-        # 1. Decide action by thinking (inside try...finally to manage is_generating)
-        action: Action = NoAction(reason="Initialization before think") # Default action
-        action_summary = "Action execution skipped due to error during think." # Default summary
-
-        # NOTE: is_generating flag is now managed by the Simulation loop around the call to act()
-        # self.is_generating = True # REMOVED
-        try:
-            action = self.think() # Think now stores thought details in STM
-
-            # 2. Execute the action and update memory (only if think succeeded)
-            logger.info(f"Agent {self.agent_id} ({self.color}) executing action: {action.__class__.__name__}")
-            action_summary = f"Unknown action: {type(action)}" # Reset summary for execution
-
-            # --- Action Execution Logic (Moved inside the try block) ---
-            if isinstance(action, SendMessageAction):
-                environment.add_message(self.agent_id, action.content)
-                action_summary = f"Sent message: {action.content[:50]}..."
-            elif isinstance(action, PublishKnowledgeAction):
-                knowledge_id = environment.publish_knowledge(self.agent_id, action.content)
-                action_summary = f"Published knowledge ({knowledge_id[:8]}): {action.content[:40]}..."
-            elif isinstance(action, QueryKnowledgeAction):
-                # Execute query and store result directly on the agent for the *next* tick's prompt
-                self.knowledge_query_result = environment.query_knowledge_base(action.query)
-                num_results = len(self.knowledge_query_result)
-                action_summary = f"Queried knowledge base ('{action.query[:40]}...'), found {num_results} results."
-                logger.info(f"Agent {self.agent_id} ({self.color}) {action_summary}") # Log query result count
-            elif isinstance(action, GatherResourceAction):
-                res_type = action.resource_type
-                gather_amount = environment.get_gather_amount(res_type)
-                if gather_amount > 0:
-                    success = environment.modify_resource(res_type, gather_amount)
-                    if success:
-                        action_summary = f"Gathered {gather_amount:.1f} {res_type}."
-                    else:
-                        # This case might not happen if modify_resource always returns True on partial success
-                        action_summary = f"Attempted to gather {res_type}, but failed (e.g., invalid type)."
-                        logger.warning(f"Agent {self.agent_id} failed to gather {res_type} (modify_resource returned False).")
-                else:
-                    action_summary = f"Attempted to gather {res_type}, but gather amount is zero or negative in config."
-                    logger.warning(f"Agent {self.agent_id} attempted to gather {res_type} with non-positive gather amount configured.")
-            elif isinstance(action, ProposeAction):
-                # Pass the relevant parts of the action to the environment
-                proposal_id = environment.register_proposal(self.agent_id, action.to_dict())
-                action_summary = f"Proposed (ID: {proposal_id}, Type: {action.proposal_type}): {action.description[:40]}..."
-            elif isinstance(action, VoteAction):
-                success = environment.record_vote(self.agent_id, action.proposal_id, action.vote)
-                status = "recorded" if success else "failed"
-                action_summary = f"Vote '{action.vote}' on {action.proposal_id} {status}."
-            # --- NEW ACTION HANDLING ---
-            elif isinstance(action, ChangeRoleAction):
-                new_role_raw = action.new_role.strip()
-                # Basic sanitization (redundant with initial determination but good practice)
-                new_role = re.sub(r'[^\w-]', '', new_role_raw)
-                new_role = new_role[:30] # Limit length
-
-                if not new_role:
-                    action_summary = "Action failed: Proposed role name was empty or invalid after cleaning."
-                    logger.warning(f"Agent {self.agent_id} proposed invalid role name '{new_role_raw}'. Action failed.")
-                    action = NoAction(reason=action_summary) # Change action to NoAction for memory log
-                # Check uniqueness against last known agent IDs (case-insensitive)
-                elif new_role.lower() in [aid.lower() for aid in self.last_known_agent_ids if aid.lower() != self.agent_id.lower()]:
-                    action_summary = f"Action failed: Proposed role name '{new_role}' is already in use."
-                    logger.warning(f"Agent {self.agent_id} failed to change role to '{new_role}': Name conflict.")
-                    action = NoAction(reason=action_summary) # Change action to NoAction
-                else:
-                    old_id = self.agent_id
-                    self.agent_id = new_role # Update the agent's ID
-                    action_summary = f"Changed role from '{old_id}' to '{self.agent_id}'."
-                    logger.info(f"Agent {old_id} ({self.color}) {action_summary}")
-                    # Note: The change takes effect immediately for subsequent actions/UI updates in the *next* tick.
-                    # Other agents will perceive the new name in the next tick.
-            # --- END NEW ACTION HANDLING ---
-            elif isinstance(action, NoAction):
-                reason = action.reason if action.reason else "No reason specified."
-                action_summary = f"NoAction. Reason: {reason}"
-                logger.info(f"Agent {self.agent_id} ({self.color}) takes NoAction. Reason: {reason}")
-            else:
-                logger.warning(f"Agent {self.agent_id} ({self.color}) attempted unknown or unhandled action type: {type(action)}")
-                action_summary = f"Action failed (unhandled type {type(action)})"
-            # --- End Action Execution Logic ---
-
-        finally:
-            # NOTE: is_generating flag is now managed by the Simulation loop around the call to act()
-            # self.is_generating = False # REMOVED
-            # Update short-term memory about the action taken (or attempted)
-            # We log the action decided by think(), even if execution failed later (though less likely now)
-            # If think() itself failed, the initial NoAction and error summary are used.
-            self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": action_summary})
-
-        return action # Return the action taken (might be useful for sim loop)
-
-
-    def update_memories(self, new_memory: Dict[str, Any]) -> None:
-        """
-        Updates the agent's short-term memory.
-        Adds a simple summary if not provided. Includes a timestamp.
-        """
-        # Add timestamp to all memories
-        new_memory['timestamp'] = datetime.now(timezone.utc).isoformat()
-
-        # Ensure a summary exists
-        if 'summary' not in new_memory:
-            mem_type = new_memory.get('type', 'memory')
-            content_preview = str(new_memory.get('content', '...'))[:50]
-            new_memory['summary'] = f"{mem_type}: {content_preview}"
-
-        logger.debug(f"Agent {self.agent_id} ({self.color}) updating STM with: {new_memory['summary']}")
-        self.short_term_memory.append(new_memory)
-        # TODO: Implement LTM consolidation/summarization here later
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serializes the agent's state to a dictionary."""
-        return {
-            "agent_id": self.agent_id,
-            "model_identifier": self.model_identifier,
-            "color": self.color,
-            "directives": self.directives,
-            "short_term_memory": list(self.short_term_memory),
-            "personality_and_motives": self.personality_and_motives,
-            "is_generating": self.is_generating,
-            # last_known_agent_ids is transient, derived from perception
-            # knowledge_query_result is transient, not saved
-            # prompts are not saved, they are loaded from file at simulation start
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any], prompts: Dict[str, str]) -> 'Agent':
-        """
-        Deserializes an agent's state from a dictionary.
-        Requires the loaded prompts dictionary to be passed in.
-        """
-        agent = cls(
-            agent_id=data["agent_id"],
-            model_identifier=data["model_identifier"],
-            initial_directives=data["directives"],
-            prompts=prompts, # Pass loaded prompts
-            color=data.get("color", "white")
-        )
-        # Restore short_term_memory deque
-        # Use the default maxlen from the class definition if available
-        default_stm_maxlen = getattr(cls(agent_id="", model_identifier="", initial_directives=[], prompts={}), 'short_term_memory', deque(maxlen=20)).maxlen
-        stm_maxlen = data.get("short_term_memory_maxlen", default_stm_maxlen) # Allow saving maxlen in future?
-
-        loaded_stm_list = data.get("short_term_memory", [])
-        # Ensure loaded memories have timestamps and summaries (add if missing for backward compat)
-        for mem in loaded_stm_list:
-            if 'timestamp' not in mem:
-                mem['timestamp'] = datetime.now(timezone.utc).isoformat() # Or a fixed old date like '1970-01-01T00:00:00+00:00'
-                logger.warning(f"Memory item for agent {agent.agent_id} loaded without timestamp, adding current time.")
-            if 'summary' not in mem: # Add summary if missing
-                 mem_type = mem.get('type', 'memory')
-                 content_preview = str(mem.get('content', '...'))[:50]
-                 mem['summary'] = f"{mem_type}: {content_preview}"
-                 logger.warning(f"STM item for agent {agent.agent_id} loaded without summary, generating one.")
-
-        agent.short_term_memory = deque(loaded_stm_list, maxlen=stm_maxlen)
-        # Load personality, provide default if missing from old saves
-        agent.personality_and_motives = data.get("personality_and_motives", "Personality not found in save file.")
-        # knowledge_query_result is initialized to None, not loaded from state
-        agent.knowledge_query_result = None
-        # is_generating is transient and should always start as False when loaded
-        agent.is_generating = False
-        # last_known_agent_ids is initialized empty
-        agent.last_known_agent_ids = []
-        return agent
+            if isinstance(response_obj, Message) and isinstance(
