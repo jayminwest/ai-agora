@@ -68,15 +68,14 @@ class Agent:
                     logger.info(f"Agent {self.agent_id} ({self.color}) decided action: {action}")
                     return action
                 else:
-                    # If JSON is valid but not the expected action format, treat as a thought/message
-                    logger.warning(f"Agent {self.agent_id} ({self.color}) produced valid JSON but not a recognized action format: {action_data}. Sending as message.")
-                    # Fallback: treat non-action JSON as a message to send
-                    return SendMessageAction(content=json.dumps(action_data))
+                    # If JSON is valid but not the expected action format, log it and do nothing.
+                    logger.warning(f"Agent {self.agent_id} ({self.color}) produced valid JSON but not a recognized action format: {action_data}. Performing NoAction.")
+                    return NoAction(reason="LLM response was valid JSON but not a recognized action format.")
 
             except json.JSONDecodeError:
-                logger.warning(f"Agent {self.agent_id} ({self.color}) response was not valid JSON: '{response_text}'. Treating as simple message.")
-                # Fallback: treat non-JSON response as a simple message to send
-                return SendMessageAction(content=response_text)
+                logger.warning(f"Agent {self.agent_id} ({self.color}) response was not valid JSON: '{response_text}'. Performing NoAction.")
+                # Fallback: If response is not JSON, do nothing.
+                return NoAction(reason="LLM response was not valid JSON.")
             except (ValueError, TypeError) as e:
                 # Catch errors during Action.from_dict (unknown type, bad keys)
                 logger.error(f"Agent {self.agent_id} ({self.color}) failed to create action from dict {action_data}: {e}. Defaulting to NoAction.")
