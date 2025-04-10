@@ -34,5 +34,17 @@
     "source_agent_id": "SystemInitial",
     "id": "initial_5",
     "timestamp": "2025-01-01T00:00:05+00:00"
+  },
+  {
+    "content": "Initial reports suggest resources may be limited. Efficient allocation will be necessary.",
+    "source_agent_id": "SystemInitial",
+    "id": "initial_6",
+    "timestamp": "2025-01-01T00:00:06+00:00"
+  },
+  {
+    "content": "A provisional 'Council of Three' leadership structure has been suggested for initial coordination, pending formal proposal and vote.",
+    "source_agent_id": "SystemInitial",
+    "id": "initial_7",
+    "timestamp": "2025-01-01T00:00:07+00:00"
   }
 ]
