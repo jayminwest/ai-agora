@@ -3,6 +3,7 @@ Defines potential actions agents can take and their corresponding tool definitio
 for Ollama's tool calling feature.
 """
 import logging
+import dataclasses # Import the dataclasses module
 from dataclasses import dataclass, asdict, is_dataclass, fields
 from typing import Dict, Any, Type, Optional, Literal, List
 
