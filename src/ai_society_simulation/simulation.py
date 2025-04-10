@@ -63,6 +63,12 @@ class Simulation:
 
         # Environment is already initialized in __init__
 
+        # *** ADD A SEED MESSAGE ***
+        if not self.environment.message_log: # Only add if the log is empty (e.g., not loading from save)
+            initial_topic = "Let's discuss the best way to collaborate effectively."
+            self.environment.add_message("System", f"Welcome, agents. {initial_topic}")
+            logger.info(f"Added initial system message to seed conversation: '{initial_topic}'")
+
     def run_tick(self) -> None:
         """Executes a single time step (tick) of the simulation."""
         self.tick_count += 1
@@ -76,9 +82,9 @@ class Simulation:
         environment_state = self.environment.get_state()
 
         # Agent processing loop
-        # TODO: Consider different processing orders (e.g., random, influence-based)
-        agent_order = self.agents # Simple sequential order for now
-        # agent_order = random.sample(self.agents, len(self.agents)) # Example: Random order
+        # Randomize agent order each tick
+        agent_order = random.sample(self.agents, len(self.agents))
+        logger.debug(f"Agent processing order: {[a.agent_id for a in agent_order]}")
 
         for agent in agent_order:
             try:

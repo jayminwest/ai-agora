@@ -108,6 +108,7 @@ class Agent:
         """Constructs the prompt for the LLM based on current state and memory."""
         prompt_lines = [
             f"You are Agent {self.agent_id}, identified by the color {self.color}.",
+            "Your goal is to engage in meaningful conversation with other agents.", # Added goal
             "Your core directives are:",
             "\n".join(f"- {d}" for d in self.directives),
             "\n--- Recent Activity & Context ---"
@@ -142,9 +143,10 @@ class Agent:
                     except ValueError:
                         ts_formatted = ts # Keep original if format fails
                     prompt_lines.append(f"- [{ts_formatted}] {sender}: {content}")
+            prompt_lines.append("\nConsider responding to the latest messages or continuing the discussion.") # Added suggestion
         else:
              prompt_lines.append("\nRecent messages in the environment:")
-             prompt_lines.append("- (Could not retrieve recent messages from memory)")
+             prompt_lines.append("- (No recent messages observed). You could start a conversation.") # Added suggestion
 
 
         # 2. Add last few memories (actions, thoughts)
@@ -165,16 +167,19 @@ class Agent:
             prompt_lines.append("- (No recent internal activity)")
 
 
-        # 3. Action Instructions
+        # 3. Action Instructions (Modify instructions)
         prompt_lines.extend([
             "\n--- Your Task ---",
             "Based on your directives, the recent messages, and your internal activity, decide your next single action.",
+            "Your primary goal is to contribute to the conversation.", # Reinforce goal
+            "If someone asked a question, try to answer it. If someone made a point, consider responding to it.", # More specific guidance
+            "If the conversation is stalled, consider asking a question or introducing a relevant topic.", # More specific guidance
             "Choose ONE of the following actions and respond ONLY with the corresponding JSON object (no explanations, preamble, or markdown formatting):",
             "",
-            "1. Send a message to the environment:",
-            '   {"_action_type": "SendMessageAction", "content": "Your concise message here."}',
+            "1. Send a message to the environment to continue or start a conversation:", # Emphasize conversation
+            '   {"_action_type": "SendMessageAction", "content": "Your thoughtful message here."}',
             "",
-            "2. Do nothing (if no action is needed or appropriate):",
+            "2. Do nothing (if you have nothing relevant to add right now):", # Qualify NoAction
             '   {"_action_type": "NoAction", "reason": "Optional concise reason for doing nothing."}',
             "",
             "Your JSON response:"
