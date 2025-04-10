@@ -248,16 +248,6 @@ _ACTION_CLASSES = {
 
 
 def _get_action_class(action_type_str: str) -> Optional[Type[Action]]:
-    'NoAction': NoAction,
-    'SendMessageAction': SendMessageAction,
-    'PublishKnowledgeAction': PublishKnowledgeAction,
-    'QueryKnowledgeAction': QueryKnowledgeAction,
-    'ProposeAction': ProposeAction, # Register new action
-    'VoteAction': VoteAction,       # Register new action
-    # Add other action classes here as they are created
-}
-
-def _get_action_class(action_type_str: str) -> Optional[Type[Action]]:
     """Looks up an action class by its name."""
     return _ACTION_CLASSES.get(action_type_str)
 
