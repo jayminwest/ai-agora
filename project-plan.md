@@ -110,6 +110,7 @@ This section outlines a potential architecture focusing on modularity, configura
     -   `tick_delay_ms`: Base delay between ticks (for controlling simulation speed).
     -   `save_interval_ticks`: How often to automatically save state.
     -   `log_level`: Verbosity of console logging.
+    -   `initial_knowledge_base_file`: Optional path (relative to project root) to a JSON file containing a list of initial knowledge items. Each item should be a dictionary, minimally containing a `"content"` key. Missing `id`, `timestamp`, and `source_agent_id` will be added automatically.
 
 ### 2. Core Python Classes/Modules
 

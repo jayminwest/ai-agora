@@ -30,16 +30,64 @@ class Simulation:
         self.config = config
         self.tick_count = 0
         self.agents: List[Agent] = []
-        self.environment: Environment = Environment()
+        self.environment: Environment = Environment() # Environment initialized first
 
-        self._initialize_simulation()
+        # Load initial knowledge base *before* creating agents or adding system message
+        self._load_initial_knowledge_base()
+
+        self._initialize_agents_and_seed_message() # Separate agent creation
         logger.info(f"Simulation '{config.get('simulation_name', 'Unnamed')}' initialized.")
 
     def _initialize_simulation(self) -> None:
         """Sets up the initial state of the simulation (agents, environment)."""
-        logger.info("Initializing simulation components...")
-        # Create initial agents (MVP: only 1 agent)
-        num_agents = self.config.get('initial_agents', 1)
+    def _load_initial_knowledge_base(self) -> None:
+        """Loads initial knowledge items from a file specified in the config."""
+        kb_file_path_rel = self.config.get('initial_knowledge_base_file')
+        if not kb_file_path_rel:
+            logger.info("No initial knowledge base file specified in config. Skipping.")
+            return
+
+        # Assume the path is relative to the project root (where config.yaml is)
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # Go up 3 levels from simulation.py
+        kb_file_path_abs = os.path.join(project_root, kb_file_path_rel)
+
+        logger.info(f"Attempting to load initial knowledge base from: {kb_file_path_abs}")
+        try:
+            with open(kb_file_path_abs, 'r', encoding='utf-8') as f:
+                initial_knowledge = json.load(f)
+
+            if not isinstance(initial_knowledge, list):
+                logger.error(f"Initial knowledge base file '{kb_file_path_abs}' does not contain a JSON list. Skipping load.")
+                return
+
+            # Validate and add items (simple validation for now)
+            valid_items = []
+            for i, item in enumerate(initial_knowledge):
+                if isinstance(item, dict) and 'content' in item:
+                    # Add minimal required fields if missing (timestamp, source, id)
+                    item.setdefault('timestamp', datetime.now(timezone.utc).isoformat())
+                    item.setdefault('source_agent_id', 'SystemInitial')
+                    item.setdefault('id', f'initial_{i}')
+                    valid_items.append(item)
+                else:
+                    logger.warning(f"Skipping invalid item at index {i} in initial knowledge file: {item}")
+
+            # Prepend initial knowledge so it appears older than runtime additions
+            self.environment.shared_knowledge_base = valid_items + self.environment.shared_knowledge_base
+            logger.info(f"Successfully loaded and prepended {len(valid_items)} items from initial knowledge base file.")
+
+        except FileNotFoundError:
+            logger.error(f"Initial knowledge base file not found: {kb_file_path_abs}. Skipping load.")
+        except json.JSONDecodeError as e:
+            logger.error(f"Error decoding JSON from initial knowledge base file '{kb_file_path_abs}': {e}. Skipping load.")
+        except Exception as e:
+            logger.exception(f"An unexpected error occurred while loading initial knowledge base: {e}")
+
+
+    def _initialize_agents_and_seed_message(self) -> None:
+        """Creates agents and adds the initial system message."""
+        logger.info("Initializing agents and seeding message...")
+        num_agents = self.config.get('initial_agents', 3) # Use the actual default from config.yaml
         model_tiers = self.config.get('model_tiers', ['phi3:mini']) # Default model
         directives_pool = self.config.get('agent_directives_pool', ["Be productive."])
 
