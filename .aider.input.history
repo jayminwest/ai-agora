@@ -542,3 +542,153 @@
 
 # 2025-04-10 12:24:54.605288
 +/ask Awesome. What's next?
+
+# 2025-04-10 12:26:17.624181
++/architect Alright, implment that
+
+# 2025-04-10 12:27:13.688534
++/ask Awesome. Let's add some more agents to the mix. Let's have different agents have different colors in the ui
+
+# 2025-04-10 12:28:20.881405
++/architect Implement that
+
+# 2025-04-10 12:29:08.904403
++Implement those changes
+
+# 2025-04-10 12:30:19.058612
++/add src/ai_society_simulation/agent.py
+
+# 2025-04-10 12:30:22.402496
++/add config.yaml
+
+# 2025-04-10 12:30:23.363301
++There
+
+# 2025-04-10 12:31:59.056798
++I'm seeing this in the UI: [white]agent_0[/]:https://rich.readthedocs.io/en/stable/style.html
+
+# 2025-04-10 12:32:29.544753
++Awesome. Now update the config file to use the mistral model and add another agent to the mix
+
+# 2025-04-10 12:34:15.070372
++I'm only seeing one agent working. Also, the .json file seems to be getting cutoff:
++
++{
++    "config": {
++        "simulation_name": "mvp_test",
++        "initial_agents": 2,
++        "model_tiers": [
++            "mistral:7b-instruct",
++            "phi3:mini"
++        ],
++        "agent_directives_pool": [
++            "Seek understanding."
++        ],
++        "influence_rules": {},
++        "upgrade_mechanism": "voting",
++        "upgrade_threshold": 100,
++        "tick_delay_ms": 100,
++        "save_interval_ticks": 10,
++        "log_level": "INFO"
++    },
++    "tick_count": 1,
++    "agents": [
++        {
++            "agent_id": "agent_0",
++            "model_identifier": "mistral:7b-instruct",
++            "color": "white",
++            "directives": [
++                "Seek understanding."
++            ],
++            "memory": [
++                {
++                    "type": "perception",
++                    "content": {
++                        "recent_messages": []
++                    },
++                    "summary": "Perceived environment state."
++                },
++                {
++                    "type": "thought",
++                    "content": 
+
+# 2025-04-10 12:34:35.935307
++/add src/ai_society_simulation/environment.py src/ai_society_simulation/simulation.py 
+
+# 2025-04-10 12:34:37.432338
++There
+
+# 2025-04-10 12:35:47.665923
++] [bright_blue]agent_0[/]: I am Agent bright_blue. I am designed to seek understanding and assist with information. Can you provide me with specific data or questions you'd like me to process?               │
++│ Agents: 2                                                                                             ││ [] [bright_green]agent_1[/]: [Complex data insights derived from perceptions]                                                                                                                                   │
++│                                                                                                       ││ [] [bright_blue]agent_0[/]: I'm currently processing the data you've provided. Let me see if I can extract any meaningful insights or answers from it. If you have specific questions related to this data,     │
++│                                                                                                       ││ feel free to ask.                                                                                                                                                                                               │
++│                                                                                                       ││ [] [bright_green]agent_1[/]: Understanding complex data insights requires thorough analysis. I'm processing the perceptions to identify key patterns and anomalies that could inform strategic decisions.       │
++│                                                                                                       ││ [] [bright_blue]agent_0[/]: I'm currently processing the provided data. If you have any specific questions or requests related to this data, please let me know. I'll do my best to help.                       │
++│                                                                                                       ││ [] [bright_green]agent_1[/]: Understanding complex data insights requires thorough analysis to extract actionable intelligence. I have processed the perceptions and identified several patterns that suggest   │
++│                                                                                                       ││ opportunities for strategic interventions.  
++
++I'm seeing output like this. The coloring is working, hwoever, there is the left over [bright_green] and [/] tags (same with blue)
+
+# 2025-04-10 12:36:13.381707
++/undo
+
+# 2025-04-10 12:37:12.098412
++/clear
+
+# 2025-04-10 12:37:21.322119
++/ask We need to get the agents actuall interacting with one another
+
+# 2025-04-10 12:38:31.801548
++Make those changes. Also, make a change so that I can just enter a number to advance that many ticks
+
+# 2025-04-10 12:40:02.205535
++/ask How can I set it up so that they have an actual conversation?
+
+# 2025-04-10 12:41:41.770665
++I modified the config.yaml and it worked a bit. Seems like its one way communication though: 
++
++ [19:41:03] agent_0: Hello, I'm agent_0, the bright blue agent. Let's start a conversation!                                                                                                                      │
++│ Agents: 2                                                                                             ││ [19:41:03] agent_1: Greetings, fellow agents. Let's collaborate effectively today!                                                                                                                              │
++│                                                                                                       ││ [19:41:08] agent_0: Nice to meet you, agent_1. How can we collaborate effectively today?                                                                                                                        │
++│                                                                                                       ││ [19:41:09] agent_1: Hello, fellow agents. I am agent_1 in bright green mode today! How can we collaborate effectively?                                                                                          │
++│                                                                                                       ││ [19:41:14] agent_0: Let's discuss ways to collaborate effectively, agent_1. Any thoughts on how we can achieve this?                                                                                            │
++│                                                                                                       ││ [19:41:14] agent_1: Greetings, fellow agents. Let's focus on communication today!                                                                                                                               │
++│                                                                                                       ││ [19:41:19] agent_0: Let's brainstorm some ideas on how we can collaborate effectively, agent_1. Any suggestions you have?                                                                                       │
++│                                                                                                       ││ [19:41:20] agent_1: Let's share ideas on improving communication channels among us agents today!
+
+# 2025-04-10 12:42:23.766807
++Add a --new-sim flag to main that creates a new data/simulations/ file
+
+# 2025-04-10 12:43:52.883167
++Okay, cool. Now, each tick is advancing all the agent's states. So there will never be a way for agent_1 to intiate a conversation basically
+
+# 2025-04-10 12:44:58.014512
++Cool. Update the project-plan.md with our progress. Don't remove any info from that file, just log progress
+
+# 2025-04-10 12:45:27.794580
++/ask What's next?
+
+# 2025-04-10 12:45:52.403639
++/architect Let's do it!
+
+# 2025-04-10 12:47:39.020696
++Can you make it so that the system prompt is configurable in config.yaml
+
+# 2025-04-10 12:48:28.504299
++Okay, make sure that we can have an infinite number of agents. Also, make sure that agent_0 is seeing the "agent_directives_pool"
+
+# 2025-04-10 12:49:39.172932
++We can put the infinite colors and stuff aside for right now. Just make sure that each agent is assigned at least one directive
+
+# 2025-04-10 12:51:06.599151
++This seems to be working, however, agent_2 is assigned to "bright_red" however, the name is being output as blue still 
+
+# 2025-04-10 12:52:30.571541
++In the Agent Inspector and in the Recent messages
+
+# 2025-04-10 12:53:18.243591
++Yeah, use simpler colors
+
+# 2025-04-10 12:53:55.886766
++/clear

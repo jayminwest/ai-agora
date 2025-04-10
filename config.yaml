@@ -1,11 +1,11 @@
 simulation_name: mvp_test
-initial_agents: 2
+initial_agents: 3
 model_tiers:
   - mistral:7b-instruct
   - phi3:mini
 # Add other keys with placeholder values or comments if needed for structure
-agent_directives_pool: ["Be confrontational"]
-initial_system_message: "Welcome, agents. Let's discuss the best way to collaborate effectively." # Configurable system prompt
+agent_directives_pool: ["Be confrontational", "Confuse all other agents"]
+initial_system_message: "Agent 1 is very wealthy. Agent 0 has no money. Agent 2 is confused." # Configurable system prompt
 influence_rules: {} # Placeholder
 upgrade_mechanism: voting # Placeholder
 upgrade_threshold: 100 # Placeholder
