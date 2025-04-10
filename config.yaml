@@ -1,7 +1,7 @@
 simulation_name: mvp_test
-initial_agents: 4
+initial_agents: 15
 model_tiers:
-  - mistral:7b-instruct # Example: A slightly larger model
+  - gemma3:27b # Example: A slightly larger model
   - phi4:latest          
 # Add other keys with placeholder values or comments if needed for structure
 agent_directives_pool:
@@ -27,4 +27,4 @@ forced_vote_interval: 5 # Ticks between forced voting prompts (0 to disable)
 
 # Tick Summarization Configuration
 enable_tick_summary: true # Set to true to enable LLM-based tick summaries
-summarization_model: "phi3:mini" # Model to use for generating summaries (e.g., a fast model)
+summarization_model: "phi4:latest" # Model to use for generating summaries (e.g., a fast model)
