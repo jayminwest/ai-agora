@@ -289,31 +289,34 @@ class Agent:
         # 6. Action Instructions
         prompt_lines.extend([
             "\n--- Your Task ---",
-            "Based on your directives, the context provided above (including any knowledge query results and active proposals), decide your next single action.",
-            "Your primary goal is to contribute to the conversation.", # Reinforce goal
-            "If someone asked a question, try to answer it. If someone made a point, consider responding to it.", # More specific guidance
-            "If the conversation is stalled, consider asking a question or introducing a relevant topic.", # More specific guidance
+            "Based on your directives and the context provided above (messages, knowledge, proposals), decide your next single action.",
+            "Your primary goal is societal progress through discussion AND action.",
+            "Engage in discussion using `SendMessageAction` to explore ideas, ask questions, and build consensus.",
+            "**IMPORTANT:** When the discussion converges on a specific, actionable idea (like establishing a rule, adopting a structure, or adding specific knowledge), or if someone suggests making a formal proposal, **STOP discussing it further with `SendMessageAction` and FORMALIZE it using `ProposeAction`**.",
+            "If there are active proposals you haven't voted on, use `VoteAction`.",
+            "Use `PublishKnowledgeAction` for agreed-upon facts or summaries, potentially *after* a proposal passes.",
+            "Use `QueryKnowledgeAction` if you need specific information from the knowledge base.",
+            "",
             "Choose ONE of the following actions and respond ONLY with the corresponding JSON object (no explanations, preamble, or markdown formatting):",
             "",
-            "1. Send a message to the environment to continue or start a conversation:",
+            "1. Discuss & Converse: Continue the conversation, ask questions, or respond to others.",
             '   {"_action_type": "SendMessageAction", "content": "Your conversational message here."}',
             "",
-            "2. Publish a piece of knowledge to the shared knowledge base (a factual statement or summary derived from conversation or thought):",
-            '   {"_action_type": "PublishKnowledgeAction", "content": "Your factual knowledge statement here."}',
-            "",
-            "3. Query the shared knowledge base to find information relevant to the current discussion or your goals:",
-            '   {"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}',
-            "",
-            "4. Propose a change or new idea for voting (e.g., adding knowledge):",
-            '   {"_action_type": "ProposeAction", "proposal_type": "general", "description": "Your proposal description."}',
-            '   {"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The knowledge content to add."}',
+            "2. Formalize an Idea: Propose a specific rule, structure, or knowledge addition for voting.",
+            '   {"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}',
+            '   {"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}',
             # Add examples for modify/delete later if implemented
             "",
-            "5. Vote on an active proposal:",
+            "3. Vote: Cast your vote on an existing, active proposal.",
             '   {"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"}', # Or "no", "abstain"
             "",
-            # Renumber NoAction
-            "6. Do nothing (if you have nothing relevant to add or query right now):",
+            "4. Record Knowledge: Add a factual statement or summary to the knowledge base.",
+            '   {"_action_type": "PublishKnowledgeAction", "content": "Your factual knowledge statement here."}',
+            "",
+            "5. Seek Information: Query the knowledge base.",
+            '   {"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}',
+            "",
+            "6. Do Nothing: Only if you have absolutely nothing relevant to contribute or act upon.",
             '   {"_action_type": "NoAction", "reason": "Optional concise reason for doing nothing."}',
             "",
             "Your JSON response:"
