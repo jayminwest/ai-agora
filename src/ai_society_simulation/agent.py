@@ -317,9 +317,13 @@ class Agent:
             "Based on your directives and the context provided above (messages, knowledge, proposals), decide your next single action.",
             "Your primary goal is societal progress through discussion AND action.",
             "Engage in discussion using `SendMessageAction` to explore ideas, ask questions, and build consensus.",
-            "**CRITICAL: Do NOT get stuck in endless discussion.** If the conversation seems to be repeating points about a potential solution or structure (like the 'council' or 'committee' mentioned recently), or if an idea seems concrete enough to vote on, **STOP using `SendMessageAction` for that topic.**",
-            "**Instead, FORMALIZE the idea by using `ProposeAction`.** This is essential for making progress.",
-            "If you see a clear suggestion for a rule, structure, or knowledge entry, propose it!",
+            "**CRITICAL: Avoid endless discussion loops.** Progress requires formal proposals.",
+            "**RULE:** If a specific topic (e.g., 'council structure', 'representation criteria', 'committee formation') has been discussed in the last 2-3 messages by multiple agents, **DO NOT use `SendMessageAction` to discuss it further.**",
+            "**INSTEAD:** You **MUST** use `ProposeAction` to formalize a concrete aspect of that topic for voting. Examples:",
+            "   - If discussing council roles: `ProposeAction` to define specific roles.",
+            "   - If discussing criteria: `ProposeAction` to adopt specific criteria.",
+            "   - If discussing a committee: `ProposeAction` to establish the committee.",
+            "**Proposing is preferred over repeating discussion points.** If an idea is clear enough to discuss, it's likely clear enough to propose.",
         ])
 
         # Forced Voting Logic
