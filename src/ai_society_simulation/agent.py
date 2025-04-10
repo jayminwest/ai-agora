@@ -1,11 +1,14 @@
 """Defines the Agent class for the simulation."""
 
 import logging
-from typing import List, Dict, Any, Deque
+from typing import List, Dict, Any, Deque, TYPE_CHECKING
 from collections import deque
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from .environment import Environment # Import for type hinting only
 
 class Agent:
     """Represents an individual agent in the simulation."""
