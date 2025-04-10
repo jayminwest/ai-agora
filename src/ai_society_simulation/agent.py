@@ -317,7 +317,9 @@ class Agent:
             "Based on your directives and the context provided above (messages, knowledge, proposals), decide your next single action.",
             "Your primary goal is societal progress through discussion AND action.",
             "Engage in discussion using `SendMessageAction` to explore ideas, ask questions, and build consensus.",
-            "**IMPORTANT:** When the discussion converges on a specific, actionable idea (like establishing a rule, adopting a structure, or adding specific knowledge), or if someone suggests making a formal proposal, **STOP discussing it further with `SendMessageAction` and FORMALIZE it using `ProposeAction`**.",
+            "**CRITICAL: Do NOT get stuck in endless discussion.** If the conversation seems to be repeating points about a potential solution or structure (like the 'council' or 'committee' mentioned recently), or if an idea seems concrete enough to vote on, **STOP using `SendMessageAction` for that topic.**",
+            "**Instead, FORMALIZE the idea by using `ProposeAction`.** This is essential for making progress.",
+            "If you see a clear suggestion for a rule, structure, or knowledge entry, propose it!",
         ])
 
         # Forced Voting Logic
