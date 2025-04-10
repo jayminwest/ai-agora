@@ -315,18 +315,16 @@ class Agent:
 
         prompt_lines.extend([
             "Based on your directives and the context provided above (messages, knowledge, proposals), decide your next single action.",
-            "Your primary goal is societal progress through discussion AND action.",
-            "Engage in discussion using `SendMessageAction` to explore ideas, ask questions, and build consensus.",
-            "**CRITICAL: Avoid endless discussion loops.** Progress requires formal proposals.",
-            "**RULE:** If a specific topic (e.g., 'council structure', 'representation criteria', 'committee formation') has been discussed in the last 2-3 messages by multiple agents, **DO NOT use `SendMessageAction` to discuss it further.**",
-            "**INSTEAD:** You **MUST** use `ProposeAction` to formalize a concrete aspect of that topic for voting. Examples:",
-            "   - If discussing council roles: `ProposeAction` to define specific roles.",
-            "   - If discussing criteria: `ProposeAction` to adopt specific criteria.",
-            "   - If discussing a committee: `ProposeAction` to establish the committee.",
-            "**Proposing is preferred over repeating discussion points.** If an idea is clear enough to discuss, it's likely clear enough to propose.",
+            "Your primary goal is societal progress through discussion, deliberation, and collective action via proposals.",
+            "1. **Discuss First:** Use `SendMessageAction` to explore ideas, ask questions, gauge interest, and build consensus *before* making formal proposals.",
+            "2. **Propose Thoughtfully:** Once an idea seems to have support or requires a formal decision, use `ProposeAction` to make a *specific, actionable* proposal.",
+            "   - Avoid proposing things that haven't been discussed or seem unlikely to pass.",
+            "   - Ensure your proposal description is clear and concise.",
+            "3. **Vote Actively:** Regularly review active proposals (see list above). Use `VoteAction` to make your voice heard. Voting is crucial for progress. Prioritize voting on proposals relevant to ongoing discussions or your directives.",
+            "4. **Manage Knowledge:** Use `PublishKnowledgeAction` for agreed-upon facts (often *after* a proposal passes) and `QueryKnowledgeAction` to find existing information.",
         ])
 
-        # Forced Voting Logic
+        # Voting Logic (Mandatory Check and General Consideration)
         can_vote = False
         unvoted_proposals = []
         if active_proposals:
@@ -335,20 +333,21 @@ class Agent:
             if unvoted_proposals:
                 can_vote = True
 
-        if is_forced_vote_tick:
-            if can_vote:
-                prompt_lines.append("**MANDATORY VOTE CHECK:** You MUST use `VoteAction` on at least one active proposal you haven't voted on yet (see list above). Choose the proposal you want to prioritize voting on now.")
+        # Add voting prompts based on whether it's a forced check and if voting is possible
+        if can_vote:
+            if is_forced_vote_tick:
+                prompt_lines.append("**MANDATORY VOTE CHECK:** It's time for a voting check. You SHOULD prioritize using `VoteAction` on at least one active proposal you haven't voted on (see list above).")
             else:
-                prompt_lines.append("**MANDATORY VOTE CHECK:** There are no active proposals for you to vote on. You may choose any other action.")
-        elif can_vote:
-             prompt_lines.append("Consider using `VoteAction` on active proposals you haven't voted on yet.")
-        else:
-             prompt_lines.append("There are currently no active proposals for you to vote on.")
-
+                # General encouragement to vote even if not mandatory tick
+                prompt_lines.append("Remember to participate: Consider using `VoteAction` on active proposals you haven't voted on yet.")
+        elif is_forced_vote_tick:
+             prompt_lines.append("**MANDATORY VOTE CHECK:** No proposals require your vote currently. Proceed with another action.")
+        # No message needed if not forced tick and no proposals to vote on.
 
         prompt_lines.extend([
-            "Use `PublishKnowledgeAction` for agreed-upon facts or summaries, potentially *after* a proposal passes.",
-            "Use `QueryKnowledgeAction` if you need specific information from the knowledge base.",
+            "", # Add spacing
+            "Use `PublishKnowledgeAction` for agreed-upon facts or summaries (often after a proposal passes).",
+            "Use `QueryKnowledgeAction` if you need specific information before acting.",
             "",
             "Choose ONE of the following actions and respond ONLY with the corresponding JSON object (no explanations, preamble, or markdown formatting):",
             "",
