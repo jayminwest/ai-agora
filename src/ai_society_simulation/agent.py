@@ -86,12 +86,15 @@ class Agent:
 
         num_msgs = len(environment_state.get('recent_messages', []))
         num_knowledge = len(environment_state.get('recent_knowledge', []))
-        perception_summary = f"Perceived environment: {num_msgs} messages, {num_knowledge} knowledge items."
+        num_proposals = len(environment_state.get('active_proposals', [])) # Get proposal count
+        perception_summary = f"Perceived environment: {num_msgs} messages, {num_knowledge} knowledge items, {num_proposals} active proposals."
         self.update_memories({
             "type": "perception",
             "content": environment_state,
             "summary": perception_summary
         })
+        # Store active proposals from perception for use in _build_prompt
+        self._last_perceived_proposals = environment_state.get('active_proposals', [])
         logger.debug(f"Agent {self.agent_id} ({self.color}): {perception_summary}")
 
 
@@ -160,6 +163,9 @@ class Agent:
             "\n".join(f"- {d}" for d in self.directives),
             "\n--- Recent Activity & Context ---"
         ]
+
+        # Retrieve active proposals stored during perceive()
+        active_proposals = getattr(self, '_last_perceived_proposals', [])
 
         # 1. Add results from the last knowledge query, if any
         if self.knowledge_query_result is not None: # Check if None or empty list
@@ -262,11 +268,28 @@ class Agent:
         if internal_mems_added == 0:
             prompt_lines.append("- (No recent internal activity)")
 
+        # 5. Add Active Proposals
+        prompt_lines.append("\n--- Active Proposals ---")
+        if not active_proposals:
+            prompt_lines.append("- (No active proposals)")
+        else:
+            prompt_lines.append("Review these proposals and consider voting:")
+            for prop in active_proposals:
+                prop_id = prop.get('proposal_id', '?')
+                proposer = prop.get('proposer_agent_id', '?')
+                desc = prop.get('description', '?')
+                prop_type = prop.get('proposal_type', 'general')
+                votes = prop.get('votes', {})
+                my_vote = votes.get(self.agent_id, 'Not Voted') # Check if I voted
+                vote_summary = f"Votes: {sum(1 for v in votes.values() if v=='yes')} Yes, {sum(1 for v in votes.values() if v=='no')} No"
+                prompt_lines.append(f"- ID: {prop_id} (Type: {prop_type}) By: {proposer}")
+                prompt_lines.append(f"  Desc: {desc}")
+                prompt_lines.append(f"  Status: {vote_summary} (Your Vote: {my_vote})")
 
-        # 5. Action Instructions
+        # 6. Action Instructions
         prompt_lines.extend([
             "\n--- Your Task ---",
-            "Based on your directives, the context provided above (including any knowledge query results), decide your next single action.",
+            "Based on your directives, the context provided above (including any knowledge query results and active proposals), decide your next single action.",
             "Your primary goal is to contribute to the conversation.", # Reinforce goal
             "If someone asked a question, try to answer it. If someone made a point, consider responding to it.", # More specific guidance
             "If the conversation is stalled, consider asking a question or introducing a relevant topic.", # More specific guidance
@@ -281,7 +304,16 @@ class Agent:
             "3. Query the shared knowledge base to find information relevant to the current discussion or your goals:",
             '   {"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}',
             "",
-            "4. Do nothing (if you have nothing relevant to add or query right now):",
+            "4. Propose a change or new idea for voting (e.g., adding knowledge):",
+            '   {"_action_type": "ProposeAction", "proposal_type": "general", "description": "Your proposal description."}',
+            '   {"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The knowledge content to add."}',
+            # Add examples for modify/delete later if implemented
+            "",
+            "5. Vote on an active proposal:",
+            '   {"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"}', # Or "no", "abstain"
+            "",
+            # Renumber NoAction
+            "6. Do nothing (if you have nothing relevant to add or query right now):",
             '   {"_action_type": "NoAction", "reason": "Optional concise reason for doing nothing."}',
             "",
             "Your JSON response:"
@@ -298,7 +330,7 @@ class Agent:
         Execution logic for QueryKnowledgeAction is handled here to store results.
         """
         # 1. Decide action by thinking (inside try...finally to manage is_generating)
-        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction # Import actions
+        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction, ProposeAction, VoteAction # Import actions
 
         action: Action = NoAction(reason="Initialization before think") # Default action
         action_summary = "Action execution skipped due to error during think." # Default summary
@@ -325,6 +357,14 @@ class Agent:
                 num_results = len(self.knowledge_query_result)
                 action_summary = f"Queried knowledge base ('{action.query[:40]}...'), found {num_results} results."
                 logger.info(f"Agent {self.agent_id} ({self.color}) {action_summary}") # Log query result count
+            elif isinstance(action, ProposeAction):
+                # Pass the relevant parts of the action to the environment
+                proposal_id = environment.register_proposal(self.agent_id, action.to_dict())
+                action_summary = f"Proposed (ID: {proposal_id}, Type: {action.proposal_type}): {action.description[:40]}..."
+            elif isinstance(action, VoteAction):
+                success = environment.record_vote(self.agent_id, action.proposal_id, action.vote)
+                status = "recorded" if success else "failed"
+                action_summary = f"Vote '{action.vote}' on {action.proposal_id} {status}."
             elif isinstance(action, NoAction):
                 reason = action.reason if action.reason else "No reason specified."
                 action_summary = f"NoAction. Reason: {reason}"

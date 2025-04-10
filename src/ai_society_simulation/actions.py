@@ -3,7 +3,7 @@ Defines potential actions agents can take.
 """
 import logging
 from dataclasses import dataclass, asdict, is_dataclass
-from typing import Dict, Any, Type, Optional
+from typing import Dict, Any, Type, Optional, Literal # Import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +60,26 @@ class QueryKnowledgeAction(Action):
     """Represents the agent querying the shared knowledge base."""
     query: str # The search query string
 
+# --- Proposal and Voting Actions ---
+
+ProposalType = Literal["general", "knowledge_add", "knowledge_modify", "knowledge_delete"]
+
+@dataclass
+class ProposeAction(Action):
+    """Represents the agent proposing something for voting."""
+    proposal_type: ProposalType
+    description: str # Human-readable description/justification of the proposal
+    # Fields specific to knowledge modification proposals
+    content: Optional[str] = None # For knowledge_add
+    target_knowledge_id: Optional[str] = None # For knowledge_modify / knowledge_delete
+    new_content: Optional[str] = None # For knowledge_modify
+
+@dataclass
+class VoteAction(Action):
+    """Represents the agent voting on an active proposal."""
+    proposal_id: str
+    vote: Literal["yes", "no", "abstain"]
+
 # --- Action Registry (for deserialization) ---
 # Simple registry to map action type names back to classes for from_dict
 
@@ -67,7 +87,9 @@ _ACTION_CLASSES = {
     'NoAction': NoAction,
     'SendMessageAction': SendMessageAction,
     'PublishKnowledgeAction': PublishKnowledgeAction,
-    'QueryKnowledgeAction': QueryKnowledgeAction, # Register new action
+    'QueryKnowledgeAction': QueryKnowledgeAction,
+    'ProposeAction': ProposeAction, # Register new action
+    'VoteAction': VoteAction,       # Register new action
     # Add other action classes here as they are created
 }
 
@@ -101,4 +123,4 @@ if __name__ == '__main__':
         print(f"An error occurred during deserialization test: {e}")
 
 
-logger.info("Actions module loaded with NoAction and SendMessageAction.")
+logger.info("Actions module loaded with core actions, proposal, and voting actions.")

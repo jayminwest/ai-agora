@@ -1,11 +1,12 @@
 """Defines the Environment class for the simulation."""
 
 import logging
-from typing import List, Dict, Any
-from datetime import datetime, timezone # Import datetime and timezone
+from typing import List, Dict, Any, Optional # Import Optional
+from datetime import datetime, timezone, timedelta # Import datetime, timezone, timedelta
 import uuid # Import uuid for unique knowledge IDs
 
 logger = logging.getLogger(__name__)
+PROPOSAL_TTL_SECONDS = 3600 # Default Time-To-Live for proposals (e.g., 1 hour in real time, adjust as needed)
 
 class Environment:
     """Represents the shared environment for the agents."""
@@ -14,7 +15,8 @@ class Environment:
         """Initializes the environment."""
         self.message_log: List[Dict[str, Any]] = []
         self.shared_knowledge_base: List[Dict[str, Any]] = [] # Add knowledge base
-        logger.info("Environment initialized with message log and knowledge base.")
+        self.proposals: List[Dict[str, Any]] = [] # Add proposal list
+        logger.info("Environment initialized with message log, knowledge base, and proposal list.")
 
     def add_message(self, sender_id: str, content: str) -> None:
         """Adds a message to the environment's log with a timestamp."""
@@ -68,6 +70,88 @@ class Environment:
         logger.debug(f"Knowledge base query '{query}' found {len(results)} results.")
         return results # Results are already newest first due to reversed iteration
 
+    # --- Proposal Methods ---
+
+    def register_proposal(self, agent_id: str, proposal_data: Dict[str, Any]) -> str:
+        """Registers a new proposal."""
+        proposal_id = f"prop_{uuid.uuid4().hex[:6]}" # Shorter proposal ID
+        timestamp = datetime.now(timezone.utc)
+        # expiry_time = timestamp + timedelta(seconds=PROPOSAL_TTL_SECONDS) # Example expiry
+
+        proposal = {
+            "proposal_id": proposal_id,
+            "proposer_agent_id": agent_id,
+            "proposal_type": proposal_data.get("proposal_type", "general"),
+            "description": proposal_data.get("description", "No description provided."),
+            "status": "active", # Statuses: active, passed, failed, executed, expired, error
+            "votes": {}, # agent_id: vote ("yes", "no", "abstain")
+            "timestamp_proposed": timestamp.isoformat(),
+            "timestamp_closed": None,
+            # "timestamp_expires": expiry_time.isoformat(), # Optional expiry
+            # Store specific data for KB proposals
+            "target_knowledge_id": proposal_data.get("target_knowledge_id"),
+            "content": proposal_data.get("content"),
+            "new_content": proposal_data.get("new_content"),
+        }
+        self.proposals.append(proposal)
+        logger.info(f"Proposal {proposal_id} registered by {agent_id} (Type: {proposal['proposal_type']}): {proposal['description'][:60]}...")
+        return proposal_id
+
+    def record_vote(self, agent_id: str, proposal_id: str, vote: str) -> bool:
+        """Records an agent's vote on an active proposal."""
+        proposal = self.get_proposal_by_id(proposal_id)
+        if not proposal:
+            logger.warning(f"Agent {agent_id} tried to vote on non-existent proposal {proposal_id}.")
+            return False
+        if proposal["status"] != "active":
+            logger.warning(f"Agent {agent_id} tried to vote on inactive proposal {proposal_id} (Status: {proposal['status']}).")
+            return False
+        if agent_id in proposal["votes"]:
+            logger.warning(f"Agent {agent_id} already voted on proposal {proposal_id}.")
+            return False # Allow changing votes later? For now, no.
+
+        proposal["votes"][agent_id] = vote
+        logger.info(f"Agent {agent_id} voted '{vote}' on proposal {proposal_id}.")
+        return True
+
+    def get_proposal_by_id(self, proposal_id: str) -> Optional[Dict[str, Any]]:
+        """Finds a proposal by its ID."""
+        for p in self.proposals:
+            if p["proposal_id"] == proposal_id:
+                return p
+        return None
+
+    def get_active_proposals(self) -> List[Dict[str, Any]]:
+        """Returns a list of proposals currently open for voting."""
+        return [p for p in self.proposals if p["status"] == "active"]
+
+    def execute_knowledge_proposal(self, proposal: Dict[str, Any]) -> bool:
+        """Executes a passed knowledge base modification proposal."""
+        if proposal['status'] != 'passed':
+            logger.error(f"Attempted to execute non-passed proposal {proposal['proposal_id']} (Status: {proposal['status']})")
+            return False
+
+        prop_type = proposal.get('proposal_type')
+        logger.info(f"Executing knowledge proposal {proposal['proposal_id']} (Type: {prop_type})")
+
+        try:
+            if prop_type == 'knowledge_add':
+                new_id = self.publish_knowledge(f"System (via Proposal {proposal['proposal_id']})", proposal['content'])
+                logger.info(f"Knowledge added via proposal {proposal['proposal_id']}, new ID: {new_id}")
+                proposal['status'] = 'executed'
+                return True
+            # TODO: Implement modify and delete logic here later if needed
+            # elif prop_type == 'knowledge_modify': ...
+            # elif prop_type == 'knowledge_delete': ...
+            else:
+                logger.warning(f"Knowledge proposal {proposal['proposal_id']} has unhandled type '{prop_type}'. Marking executed without action.")
+                proposal['status'] = 'executed' # Mark as handled even if type is unknown/general
+                return True
+        except Exception as e:
+            logger.exception(f"Error executing knowledge proposal {proposal['proposal_id']}: {e}")
+            proposal['status'] = 'error' # Mark as error state
+            return False
+
     def get_recent_knowledge(self, count: int = 5) -> List[Dict[str, Any]]:
         """Returns the most recent knowledge items."""
         return self.shared_knowledge_base[-count:]
@@ -78,10 +162,11 @@ class Environment:
 
     def get_state(self) -> Dict[str, Any]:
         """Returns the current state of the environment relevant for agents."""
-        # Provide recent messages and knowledge for agent perception
+        # Provide recent messages, knowledge, and active proposals for agent perception
         return {
             "recent_messages": self.get_recent_messages(count=5),
-            "recent_knowledge": self.get_recent_knowledge(count=3) # Agents perceive last 3 knowledge items
+            "recent_knowledge": self.get_recent_knowledge(count=3), # Agents perceive last 3 knowledge items
+            "active_proposals": self.get_active_proposals() # Include active proposals
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -90,6 +175,7 @@ class Environment:
         return {
             "message_log": self.message_log,
             "shared_knowledge_base": self.shared_knowledge_base,
+            "proposals": self.proposals, # Save proposals
         }
 
     @classmethod
@@ -99,5 +185,6 @@ class Environment:
         # Timestamps are loaded directly as strings
         env.message_log = data.get("message_log", [])
         env.shared_knowledge_base = data.get("shared_knowledge_base", [])
+        env.proposals = data.get("proposals", []) # Load proposals
         # Could add validation here if needed
         return env

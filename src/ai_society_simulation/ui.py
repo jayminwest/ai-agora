@@ -38,7 +38,8 @@ class SimulationUI:
         )
         layout["right_panel"].split_column(
             Layout(name="message_log", ratio=1),
-            Layout(name="knowledge_base", ratio=1), # Placeholder for now
+            Layout(name="knowledge_base", ratio=1),
+            Layout(name="proposals", ratio=1), # Add proposals panel
         )
         return layout
 
@@ -241,6 +242,41 @@ class SimulationUI:
         kb_content = Text("\n").join(kb_texts) if kb_texts else Text("(Knowledge base is empty)", style="dim")
         return Panel(kb_content, title="Shared Knowledge Base")
 
+    def _create_proposals_panel(self, sim_state: Dict[str, Any]) -> Panel:
+        """Creates the proposals panel."""
+        agent_colors = {agent['agent_id']: agent.get('color', 'grey') for agent in sim_state.get('agents', [])}
+        proposals = sim_state.get('environment', {}).get('proposals', [])
+        active_proposals = [p for p in proposals if p.get('status') == 'active']
+
+        if not active_proposals:
+            return Panel("(No active proposals)", title="Active Proposals")
+
+        table = Table(title=None, show_header=True, header_style="bold cyan", expand=True, box=None, padding=(0,1))
+        table.add_column("ID", style="dim", width=10)
+        table.add_column("Proposer", width=15)
+        table.add_column("Type", width=12)
+        table.add_column("Description", min_width=20, ratio=2)
+        table.add_column("Votes (Y/N)", justify="center", width=10)
+
+        for prop in active_proposals:
+            prop_id = prop.get('proposal_id', '?')
+            proposer_id = prop.get('proposer_agent_id', '?')
+            prop_type = prop.get('proposal_type', '?')
+            desc = prop.get('description', '?')
+            votes = prop.get('votes', {})
+            yes_votes = sum(1 for v in votes.values() if v == 'yes')
+            no_votes = sum(1 for v in votes.values() if v == 'no')
+            proposer_color = agent_colors.get(proposer_id, 'grey')
+
+            table.add_row(
+                prop_id,
+                f"[{proposer_color}]{proposer_id}[/]",
+                prop_type,
+                desc,
+                f"{yes_votes}/{no_votes}"
+            )
+
+        return Panel(table, title="Active Proposals")
 
     def display_tick(self, simulation_state: dict) -> Layout:
         """Updates the layout with the current simulation state."""
@@ -253,6 +289,7 @@ class SimulationUI:
         self.layout["agent_inspector"].update(self._create_agent_panel(simulation_state))
         self.layout["message_log"].update(self._create_message_log_panel(simulation_state))
         self.layout["knowledge_base"].update(self._create_knowledge_base_panel(simulation_state)) # Update KB panel
+        self.layout["proposals"].update(self._create_proposals_panel(simulation_state)) # Update proposals panel
 
         # Update footer with dynamic controls and status
         status = "[bold green]Running[/]" if running else "[bold yellow]Paused[/]"

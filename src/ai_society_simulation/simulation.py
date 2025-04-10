@@ -20,6 +20,9 @@ AGENT_COLORS = [
     # Add more basic colors if needed
 ]
 
+# Configuration for proposal lifecycle
+PROPOSAL_DURATION_TICKS = 10 # How many ticks a proposal stays active for voting
+
 class Simulation:
     """Manages the overall simulation state and execution."""
 
@@ -175,6 +178,9 @@ class Simulation:
 
         logger.info(f"--- Ending Tick {self.tick_count} ---")
 
+        # --- Proposal Management ---
+        self._process_proposals()
+
 
     def to_dict(self) -> Dict[str, Any]:
         """Serializes the simulation state to a dictionary."""
@@ -216,3 +222,50 @@ class Simulation:
 
         logger.info(f"Simulation state restored to tick {simulation.tick_count}.")
         return simulation
+
+    def _process_proposals(self) -> None:
+        """Checks active proposals, closes expired ones, tallies votes, and executes passed ones."""
+        logger.debug("Processing proposals...")
+        now_iso = datetime.now(timezone.utc).isoformat()
+        num_agents = len(self.agents)
+        if num_agents == 0: return # Cannot process proposals without agents
+
+        proposals_to_close = []
+        for proposal in self.environment.get_active_proposals():
+            proposed_at_str = proposal.get("timestamp_proposed")
+            try:
+                proposed_at = datetime.fromisoformat(proposed_at_str)
+                # Simple tick-based duration check
+                # TODO: This assumes ticks are somewhat regular in time, which might not be true.
+                # A real-time duration might be better using proposal['timestamp_expires']
+                # For now, use tick count relative to when it was proposed (needs proposal tick stored)
+                # --- Simplified: Store proposal tick count ---
+                if 'proposed_at_tick' not in proposal:
+                     proposal['proposed_at_tick'] = self.tick_count # Store tick when first seen active
+
+                if self.tick_count >= proposal['proposed_at_tick'] + PROPOSAL_DURATION_TICKS:
+                    proposals_to_close.append(proposal)
+            except (ValueError, TypeError):
+                logger.error(f"Proposal {proposal['proposal_id']} has invalid timestamp {proposed_at_str}. Cannot determine age.")
+                proposal['status'] = 'error' # Mark as error
+
+        for proposal in proposals_to_close:
+            logger.info(f"Closing proposal {proposal['proposal_id']} (Duration ended).")
+            votes = proposal.get("votes", {})
+            yes_votes = sum(1 for vote in votes.values() if vote == "yes")
+            no_votes = sum(1 for vote in votes.values() if vote == "no")
+            # Simple majority wins (more yes than no) AND requires at least one 'yes' vote
+            # More complex quorum rules could be added (e.g., min % of agents voting)
+            if yes_votes > 0 and yes_votes > no_votes:
+                proposal["status"] = "passed"
+                logger.info(f"Proposal {proposal['proposal_id']} PASSED ({yes_votes} yes, {no_votes} no).")
+                # Attempt execution if it's a knowledge proposal
+                if proposal['proposal_type'].startswith('knowledge_'):
+                    self.environment.execute_knowledge_proposal(proposal)
+                else:
+                    # Non-knowledge proposals just get marked passed for now
+                    logger.info(f"General proposal {proposal['proposal_id']} passed, no specific execution logic implemented yet.")
+            else:
+                proposal["status"] = "failed"
+                logger.info(f"Proposal {proposal['proposal_id']} FAILED ({yes_votes} yes, {no_votes} no).")
+            proposal["timestamp_closed"] = now_iso
