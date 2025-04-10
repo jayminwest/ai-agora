@@ -55,7 +55,11 @@ class Agent:
         )
 
         try:
-            response_text = call_ollama(self.model_identifier, prompt)
+            response_text = call_ollama(
+                self.model_identifier,
+                prompt,
+                request_json_format=False # Request plain text for personality description
+            )
             # Clean up response (remove potential quotes or extra whitespace)
             self.personality_and_motives = response_text.strip().strip('"').strip("'").strip()
             logger.info(f"Agent {self.agent_id} ({self.color}) determined personality: {self.personality_and_motives}")
