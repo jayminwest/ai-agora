@@ -477,8 +477,8 @@ class Agent:
         action: Action = NoAction(reason="Initialization before think") # Default action
         action_summary = "Action execution skipped due to error during think." # Default summary
 
-        # Set generating flag before thinking, ensure it's cleared after
-        self.is_generating = True
+        # NOTE: is_generating flag is now managed by the Simulation loop around the call to act()
+        # self.is_generating = True # REMOVED
         try:
             action = self.think() # Think now stores thought details in STM
 
@@ -517,8 +517,8 @@ class Agent:
             # --- End Action Execution Logic ---
 
         finally:
-            # Ensure the generating flag is turned off regardless of success/failure
-            self.is_generating = False
+            # NOTE: is_generating flag is now managed by the Simulation loop around the call to act()
+            # self.is_generating = False # REMOVED
             # Update short-term memory about the action taken (or attempted)
             # We log the action decided by think(), even if execution failed later (though less likely now)
             # If think() itself failed, the initial NoAction and error summary are used.
