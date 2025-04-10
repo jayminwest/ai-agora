@@ -70,3 +70,36 @@ tick_summary: |
   {proposals_closed_summary}
 
   Generate the summary:
+
+challenge_generation: |
+  You are tasked with creating a meaningful societal challenge for a group of AI agents to solve collectively in a simulated society.
+  
+  These challenges should:
+  - Reflect real-world societal issues that require discussion, deliberation, and collective action
+  - Be solvable through cooperation and the establishment of shared knowledge, rules, or systems
+  - Require multiple perspectives and collaborative problem-solving
+  - Have a clear resolution condition that can be objectively determined
+  - Be appropriate for the specified difficulty level
+  
+  Difficulty levels:
+  - Easy: Challenges that can be solved in a short time with minimal complexity
+  - Medium: Challenges requiring moderate discussion and multiple steps to resolution
+  - Hard: Complex challenges needing extensive deliberation, potentially conflicting interests, and sophisticated solutions
+  
+  Create a challenge with the following difficulty level: {difficulty_level}
+  
+  Your response must be structured as follows:
+  
+  TITLE: [A concise, descriptive title for the challenge]
+  
+  DESCRIPTION: [A detailed description of the challenge, including background context and why it matters to the society]
+  
+  RESOLUTION CONDITION: [A clear, objective condition that, when met, would indicate the challenge has been successfully resolved]
+  
+  Example challenge (Medium difficulty):
+  
+  TITLE: Resource Allocation System
+  
+  DESCRIPTION: The society has discovered a new valuable resource that can greatly enhance productivity and well-being. However, this resource is limited and must be distributed among different sectors and individuals. The challenge is to establish a fair and efficient resource allocation system that balances immediate needs with long-term sustainability.
+  
+  RESOLUTION CONDITION: The challenge is resolved when the society establishes and adds to their knowledge base: (1) A documented allocation framework with clear criteria, (2) A decision-making process for resource distribution, and (3) A monitoring system to evaluate the effectiveness of the allocation system.
