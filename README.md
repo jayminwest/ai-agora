@@ -10,7 +10,7 @@ A simulation exploring the emergence of social structures and behaviors in a pop
 
 1.  **Clone the repository:**
     ```bash
-    git clone <your-repo-url>
+    git clone https://github.com/jayminwest/ai-agora
     cd ai-society-simulation
     ```
 2.  **Create a virtual environment:**
