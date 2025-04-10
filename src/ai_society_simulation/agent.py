@@ -264,4 +264,408 @@ class Agent:
         # Agent Info
         context['agent_id'] = self.agent_id
         context['color'] = self.color
-        context['directives_list'] = "\n".join(f"- {
+        context['directives_list'] = "\n".join(f"- {d}" for d in self.directives)
+
+        # Retrieve active proposals stored during perceive()
+        active_proposals = getattr(self, '_last_perceived_proposals', [])
+        
+        # Retrieve resource information stored during perceive()
+        resource_state = getattr(self, '_last_resource_state', {})
+        
+        # 1. Knowledge Query Results
+        query_lines = []
+        if self.knowledge_query_result is not None:
+            query_lines.append("Results from your last Knowledge Base query:")
+            if not self.knowledge_query_result:
+                query_lines.append("- Your query returned no results.")
+            else:
+                for item in self.knowledge_query_result:
+                    ts = item.get('timestamp', '?:??')
+                    source = item.get('source_agent_id', '?')
+                    content = item.get('content', '')
+                    item_id = item.get('id', '?')[:8]
+                    try:
+                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        else: ts_dt = datetime.fromisoformat(ts)
+                        ts_formatted = ts_dt.strftime('%H:%M:%S')
+                    except ValueError: ts_formatted = ts
+                    query_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
+        else:
+            query_lines.append("Results from your last Knowledge Base query:")
+            query_lines.append("- (You haven't queried the knowledge base recently)")
+        context['knowledge_query_results_context'] = "\n".join(query_lines)
+
+        # 2. Recent Messages
+        message_lines = []
+        recent_messages: Optional[List[Dict[str, Any]]] = None
+        for mem in reversed(self.short_term_memory):
+            if mem.get('type') == 'perception':
+                recent_messages = mem.get('content', {}).get('recent_messages')
+                break
+        if recent_messages is not None:
+            if not recent_messages:
+                 message_lines.append("- (No recent messages observed)")
+            else:
+                for msg in reversed(recent_messages[-5:]): # Show last 5
+                    ts = msg.get('timestamp', '?:??')
+                    sender = msg.get('sender_id', '?')
+                    content = msg.get('content', '')
+                    try:
+                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        else: ts_dt = datetime.fromisoformat(ts)
+                        ts_formatted = ts_dt.strftime('%H:%M:%S')
+                    except ValueError: ts_formatted = ts
+                    message_lines.append(f"- [{ts_formatted}] {sender}: {content}")
+            message_lines.append("\nConsider responding to the latest messages or continuing the discussion.")
+        else:
+             message_lines.append("- (No recent messages observed). You could start a conversation.")
+        context['recent_messages_context'] = "\n".join(message_lines)
+
+        # 3. Recent Knowledge
+        knowledge_lines = []
+        recent_knowledge: Optional[List[Dict[str, Any]]] = None
+        for mem in reversed(self.short_term_memory):
+            if mem.get('type') == 'perception':
+                recent_knowledge = mem.get('content', {}).get('recent_knowledge')
+                break
+        if recent_knowledge is not None:
+            if not recent_knowledge:
+                knowledge_lines.append("- (No recent knowledge items observed)")
+            else:
+                for item in reversed(recent_knowledge[-3:]): # Show last 3
+                    ts = item.get('timestamp', '?:??')
+                    source = item.get('source_agent_id', '?')
+                    content = item.get('content', '')
+                    item_id = item.get('id', '?')[:8]
+                    try:
+                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        else: ts_dt = datetime.fromisoformat(ts)
+                        ts_formatted = ts_dt.strftime('%H:%M:%S')
+                    except ValueError: ts_formatted = ts
+                    knowledge_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
+        else:
+            knowledge_lines.append("- (Could not retrieve recent knowledge from perception memory)")
+        context['recent_knowledge_context'] = "\n".join(knowledge_lines)
+
+        # 4. Internal Activity
+        internal_lines = []
+        internal_mems_added = 0
+        for mem in reversed(self.short_term_memory):
+            mem_type = mem.get('type', 'memory')
+            if mem_type != 'perception' and internal_mems_added < 5:
+                summary = mem.get('summary', '[No summary]')
+                internal_lines.append(f"- ({mem_type}) {summary}")
+                internal_mems_added += 1
+            if internal_mems_added >= 5: break
+        if internal_mems_added == 0:
+            internal_lines.append("- (No recent internal activity)")
+        context['internal_activity_context'] = "\n".join(internal_lines)
+
+        # 5. Active Proposals
+        proposal_lines = []
+        if not active_proposals:
+            proposal_lines.append("- (No active proposals)")
+        else:
+            proposal_lines.append("Review these proposals and consider voting:")
+            for prop in active_proposals:
+                prop_id = prop.get('proposal_id', '?')
+                proposer = prop.get('proposer_agent_id', '?')
+                desc = prop.get('description', '?')
+                prop_type = prop.get('proposal_type', 'general')
+                votes = prop.get('votes', {})
+                my_vote = votes.get(self.agent_id, 'Not Voted')
+                vote_summary = f"Votes: {sum(1 for v in votes.values() if v=='yes')} Yes, {sum(1 for v in votes.values() if v=='no')} No"
+                proposal_lines.append(f"- ID: {prop_id} (Type: {prop_type}) By: {proposer}")
+                proposal_lines.append(f"  Desc: {desc}")
+                proposal_lines.append(f"  Status: {vote_summary} (Your Vote: {my_vote})")
+        context['active_proposals_context'] = "\n".join(proposal_lines)
+
+        # 6. Tick Info & Voting Context
+        current_tick = -1
+        is_forced_vote_tick = False
+        forced_vote_interval = 0
+        for mem in reversed(self.short_term_memory):
+            if mem.get('type') == 'perception':
+                current_tick = mem.get('content', {}).get('current_tick', -1)
+                is_forced_vote_tick = mem.get('content', {}).get('is_forced_vote_tick', False)
+                forced_vote_interval = mem.get('content', {}).get('forced_vote_interval', 0)
+                break
+        context['current_tick'] = str(current_tick)
+
+        voting_context_lines = []
+        if forced_vote_interval > 0:
+            next_forced_vote_tick = ((current_tick // forced_vote_interval) + 1) * forced_vote_interval
+            voting_context_lines.append(f"The next mandatory voting check is at Tick {next_forced_vote_tick}.")
+        context['voting_context_summary'] = "\n".join(voting_context_lines)
+        
+        # 7. Resource Status
+        resource_lines = []
+        energy = resource_state.get('energy', 0)
+        materials = resource_state.get('materials', 0)
+        energy_critical = resource_state.get('energy_critical', False)
+        materials_critical = resource_state.get('materials_critical', False)
+        collapse_state = resource_state.get('collapse_state', False)
+        
+        # Add resource status with warning levels
+        resource_lines.append("Current Resource Status:")
+        resource_lines.append(f"- Energy: {energy:.1f} {('(CRITICAL LOW)' if energy_critical else '')}")
+        resource_lines.append(f"- Materials: {materials:.1f} {('(CRITICAL LOW)' if materials_critical else '')}")
+        if collapse_state:
+            resource_lines.append("- ALERT: Society is in COLLAPSE STATE due to critical resource depletion!")
+            resource_lines.append("  Most actions are restricted until resources recover.")
+        
+        # Add action costs
+        resource_lines.append("\nResource Costs for Actions:")
+        resource_lines.append("- SendMessageAction: 0.2 Energy")
+        resource_lines.append("- PublishKnowledgeAction: 1.0 Energy")
+        resource_lines.append("- QueryKnowledgeAction: 0.5 Energy")
+        resource_lines.append("- ProposeAction: 2.0 Energy")
+        resource_lines.append("- VoteAction: 0.1 Energy")
+        resource_lines.append("- BuildInfrastructureAction: 5.0 Energy, 8.0 Materials (Increases resource generation)")
+        resource_lines.append("- ResearchTechnologyAction: 10.0 Energy, 3.0 Materials (Improves resource efficiency)")
+        
+        context['resource_context'] = "\n".join(resource_lines)
+
+
+        # 8. Voting Instructions
+        voting_instruction_lines = []
+        can_vote = False
+        if active_proposals:
+            my_votes = {p.get('proposal_id'): p.get('votes', {}).get(self.agent_id) for p in active_proposals}
+            unvoted_proposals = [p for p in active_proposals if my_votes.get(p.get('proposal_id')) is None]
+            if unvoted_proposals:
+                can_vote = True
+
+        if can_vote:
+            if is_forced_vote_tick:
+                voting_instruction_lines.append("**MANDATORY VOTE CHECK:** It's time for a voting check. You SHOULD prioritize using `VoteAction` on at least one active proposal you haven't voted on (see list above).")
+            else:
+                voting_instruction_lines.append("Remember to participate: Consider using `VoteAction` on active proposals you haven't voted on yet.")
+        elif is_forced_vote_tick:
+             voting_instruction_lines.append("**MANDATORY VOTE CHECK:** No proposals require your vote currently. Proceed with another action.")
+        context['voting_instructions'] = "\n".join(voting_instruction_lines)
+
+        # 9. Resource Action Instructions (New section)
+        if collapse_state:
+            context['resource_instructions'] = (
+                "**RESOURCE CRITICAL ALERT**: Society is in collapse state. Only basic communication "
+                "and voting actions are possible until resources recover. Conserve energy and consider "
+                "discussing strategies to address the resource crisis."
+            )
+        elif energy_critical or materials_critical:
+            context['resource_instructions'] = (
+                "**RESOURCE WARNING**: Resources are at critical levels. Consider actions that conserve resources "
+                "or propose strategies to increase resource production like BuildInfrastructureAction or "
+                "ResearchTechnologyAction."
+            )
+        else:
+            context['resource_instructions'] = (
+                "Resources are currently stable. Remember that actions consume resources; "
+                "consider resource costs when choosing your actions."
+            )
+
+        return context
+
+
+    def act(self, environment: 'Environment') -> 'Action':
+        """
+        Thinks to decide an action, executes it, updates memory, and returns the action.
+        Execution logic for QueryKnowledgeAction is handled here to store results.
+        """
+        # 1. Decide action by thinking (inside try...finally to manage is_generating)
+        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction, ProposeAction, VoteAction, BuildInfrastructureAction, ResearchTechnologyAction
+
+        action: Action = NoAction(reason="Initialization before think") # Default action
+        action_summary = "Action execution skipped due to error during think." # Default summary
+
+        # Set generating flag before thinking, ensure it's cleared after
+        self.is_generating = True
+        try:
+            action = self.think() # Think now stores thought details in STM
+
+            # 2. Execute the action and update memory (only if think succeeded)
+            logger.info(f"Agent {self.agent_id} ({self.color}) executing action: {action.__class__.__name__}")
+            action_summary = f"Unknown action: {type(action)}" # Reset summary for execution
+
+            # --- Check if society is in collapse state ---
+            if environment.is_in_collapse_state() and not isinstance(action, (NoAction, SendMessageAction, VoteAction)):
+                action_summary = f"Action {action.__class__.__name__} blocked: Society in collapse state"
+                logger.warning(f"Agent {self.agent_id} ({self.color}) attempted {action.__class__.__name__} during collapse state")
+                # Convert to NoAction
+                action = NoAction(reason="Society in collapse state - only basic communication and voting allowed")
+            # --- Action Execution Logic with Resource Costs ---
+            elif isinstance(action, SendMessageAction):
+                # Check and consume energy for sending a message
+                energy_cost = 0.2
+                if environment.consume_energy(energy_cost):
+                    environment.add_message(self.agent_id, action.content)
+                    action_summary = f"Sent message (-{energy_cost} Energy): {action.content[:50]}..."
+                else:
+                    # Not enough energy, convert to NoAction
+                    action_summary = f"Failed to send message: Insufficient energy (needed {energy_cost})"
+                    action = NoAction(reason="Insufficient energy to send message")
+            elif isinstance(action, PublishKnowledgeAction):
+                # Check and consume energy for publishing knowledge
+                energy_cost = 1.0
+                if environment.consume_energy(energy_cost):
+                    knowledge_id = environment.publish_knowledge(self.agent_id, action.content)
+                    action_summary = f"Published knowledge (-{energy_cost} Energy, {knowledge_id[:8]}): {action.content[:40]}..."
+                else:
+                    # Not enough energy, convert to NoAction
+                    action_summary = f"Failed to publish knowledge: Insufficient energy (needed {energy_cost})"
+                    action = NoAction(reason="Insufficient energy to publish knowledge")
+            elif isinstance(action, QueryKnowledgeAction):
+                # Check and consume energy for querying knowledge
+                energy_cost = 0.5
+                if environment.consume_energy(energy_cost):
+                    # Execute query and store result directly on the agent for the *next* tick's prompt
+                    self.knowledge_query_result = environment.query_knowledge_base(action.query)
+                    num_results = len(self.knowledge_query_result)
+                    action_summary = f"Queried knowledge base (-{energy_cost} Energy, '{action.query[:40]}...'), found {num_results} results."
+                    logger.info(f"Agent {self.agent_id} ({self.color}) {action_summary}") # Log query result count
+                else:
+                    # Not enough energy, convert to NoAction
+                    action_summary = f"Failed to query knowledge: Insufficient energy (needed {energy_cost})"
+                    action = NoAction(reason="Insufficient energy to query knowledge")
+            elif isinstance(action, ProposeAction):
+                # Check and consume energy for proposing
+                energy_cost = 2.0
+                if environment.consume_energy(energy_cost):
+                    # Pass the relevant parts of the action to the environment
+                    proposal_id = environment.register_proposal(self.agent_id, action.to_dict())
+                    action_summary = f"Proposed (-{energy_cost} Energy, ID: {proposal_id}, Type: {action.proposal_type}): {action.description[:40]}..."
+                else:
+                    # Not enough energy, convert to NoAction
+                    action_summary = f"Failed to propose: Insufficient energy (needed {energy_cost})"
+                    action = NoAction(reason="Insufficient energy to make a proposal")
+            elif isinstance(action, VoteAction):
+                # Check and consume energy for voting
+                energy_cost = 0.1
+                if environment.consume_energy(energy_cost):
+                    success = environment.record_vote(self.agent_id, action.proposal_id, action.vote)
+                    status = "recorded" if success else "failed"
+                    action_summary = f"Vote '{action.vote}' on {action.proposal_id} {status} (-{energy_cost} Energy)."
+                else:
+                    # Not enough energy, convert to NoAction
+                    action_summary = f"Failed to vote: Insufficient energy (needed {energy_cost})"
+                    action = NoAction(reason="Insufficient energy to vote")
+            elif isinstance(action, BuildInfrastructureAction):
+                # Convert to a ProposeAction with type build_infrastructure
+                energy_cost = 2.0  # Same cost as a regular proposal
+                if environment.consume_energy(energy_cost):
+                    # Create a ProposeAction for build_infrastructure
+                    proposal_action = ProposeAction(
+                        proposal_type="build_infrastructure",
+                        description=action.description
+                    )
+                    proposal_id = environment.register_proposal(self.agent_id, proposal_action.to_dict())
+                    action_summary = f"Proposed infrastructure (-{energy_cost} Energy, ID: {proposal_id}): {action.description[:40]}..."
+                else:
+                    # Not enough energy, convert to NoAction
+                    action_summary = f"Failed to propose infrastructure: Insufficient energy (needed {energy_cost})"
+                    action = NoAction(reason="Insufficient energy to propose infrastructure")
+            elif isinstance(action, ResearchTechnologyAction):
+                # Convert to a ProposeAction with type research_technology
+                energy_cost = 2.0  # Same cost as a regular proposal
+                if environment.consume_energy(energy_cost):
+                    # Create a ProposeAction for research_technology
+                    proposal_action = ProposeAction(
+                        proposal_type="research_technology",
+                        description=action.description
+                    )
+                    proposal_id = environment.register_proposal(self.agent_id, proposal_action.to_dict())
+                    action_summary = f"Proposed technology research (-{energy_cost} Energy, ID: {proposal_id}): {action.description[:40]}..."
+                else:
+                    # Not enough energy, convert to NoAction
+                    action_summary = f"Failed to propose technology research: Insufficient energy (needed {energy_cost})"
+                    action = NoAction(reason="Insufficient energy to propose technology research")
+            elif isinstance(action, NoAction):
+                reason = action.reason if action.reason else "No reason specified."
+                action_summary = f"NoAction. Reason: {reason}"
+                logger.info(f"Agent {self.agent_id} ({self.color}) takes NoAction. Reason: {reason}")
+            else:
+                logger.warning(f"Agent {self.agent_id} ({self.color}) attempted unknown or unhandled action type: {type(action)}")
+                action_summary = f"Action failed (unhandled type {type(action)})"
+            # --- End Action Execution Logic ---
+
+        finally:
+            # Ensure the generating flag is turned off regardless of success/failure
+            self.is_generating = False
+            # Update short-term memory about the action taken (or attempted)
+            # We log the action decided by think(), even if execution failed later (though less likely now)
+            # If think() itself failed, the initial NoAction and error summary are used.
+            self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": action_summary})
+
+        return action # Return the action taken (might be useful for sim loop)
+
+
+    def update_memories(self, new_memory: Dict[str, Any]) -> None:
+        """
+        Updates the agent's short-term memory.
+        Adds a simple summary if not provided. Includes a timestamp.
+        """
+        # Add timestamp to all memories
+        new_memory['timestamp'] = datetime.now(timezone.utc).isoformat()
+
+        # Ensure a summary exists
+        if 'summary' not in new_memory:
+            mem_type = new_memory.get('type', 'memory')
+            content_preview = str(new_memory.get('content', '...'))[:50]
+            new_memory['summary'] = f"{mem_type}: {content_preview}"
+
+        logger.debug(f"Agent {self.agent_id} ({self.color}) updating STM with: {new_memory['summary']}")
+        self.short_term_memory.append(new_memory)
+        # TODO: Implement LTM consolidation/summarization here later
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes the agent's state to a dictionary."""
+        return {
+            "agent_id": self.agent_id,
+            "model_identifier": self.model_identifier,
+            "color": self.color,
+            "directives": self.directives,
+            "short_term_memory": list(self.short_term_memory),
+            "personality_and_motives": self.personality_and_motives,
+            "is_generating": self.is_generating,
+            # knowledge_query_result is transient, not saved
+            # prompts are not saved, they are loaded from file at simulation start
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any], prompts: Dict[str, str]) -> 'Agent':
+        """
+        Deserializes an agent's state from a dictionary.
+        Requires the loaded prompts dictionary to be passed in.
+        """
+        agent = cls(
+            agent_id=data["agent_id"],
+            model_identifier=data["model_identifier"],
+            initial_directives=data["directives"],
+            prompts=prompts, # Pass loaded prompts
+            color=data.get("color", "white")
+        )
+        # Restore short_term_memory deque
+        # Use the default maxlen from the class definition if available
+        default_stm_maxlen = getattr(cls(agent_id="", model_identifier="", initial_directives=[], prompts={}), 'short_term_memory', deque(maxlen=20)).maxlen
+        stm_maxlen = data.get("short_term_memory_maxlen", default_stm_maxlen) # Allow saving maxlen in future?
+
+        loaded_stm_list = data.get("short_term_memory", [])
+        # Ensure loaded memories have timestamps and summaries (add if missing for backward compat)
+        for mem in loaded_stm_list:
+            if 'timestamp' not in mem:
+                mem['timestamp'] = datetime.now(timezone.utc).isoformat() # Or a fixed old date like '1970-01-01T00:00:00+00:00'
+                logger.warning(f"Memory item for agent {agent.agent_id} loaded without timestamp, adding current time.")
+            if 'summary' not in mem: # Add summary if missing
+                 mem_type = mem.get('type', 'memory')
+                 content_preview = str(mem.get('content', '...'))[:50]
+                 mem['summary'] = f"{mem_type}: {content_preview}"
+                 logger.warning(f"STM item for agent {agent.agent_id} loaded without summary, generating one.")
+
+        agent.short_term_memory = deque(loaded_stm_list, maxlen=stm_maxlen)
+        # Load personality, provide default if missing from old saves
+        agent.personality_and_motives = data.get("personality_and_motives", "Personality not found in save file.")
+        # knowledge_query_result is initialized to None, not loaded from state
+        agent.knowledge_query_result = None
+        # is_generating is transient and should always start as False when loaded
+        agent.is_generating = False
+        return agent
