@@ -16,7 +16,13 @@ class Environment:
         self.message_log: List[Dict[str, Any]] = []
         self.shared_knowledge_base: List[Dict[str, Any]] = [] # Add knowledge base
         self.proposals: List[Dict[str, Any]] = [] # Add proposal list
+        self.challenge_manager = None # Initialize challenge manager reference to None
         logger.info("Environment initialized with message log, knowledge base, and proposal list.")
+
+    def set_challenge_manager(self, challenge_manager):
+        """Sets the challenge manager for the environment."""
+        self.challenge_manager = challenge_manager
+        logger.info("Challenge manager set for environment.")
 
     def add_message(self, sender_id: str, content: str) -> None:
         """Adds a message to the environment's log with a timestamp."""
@@ -203,11 +209,18 @@ class Environment:
     def get_state(self) -> Dict[str, Any]:
         """Returns the current state of the environment relevant for agents."""
         # Provide recent messages, knowledge, and active proposals for agent perception
-        return {
+        state = {
             "recent_messages": self.get_recent_messages(count=5),
             "recent_knowledge": self.get_recent_knowledge(count=3), # Agents perceive last 3 knowledge items
             "active_proposals": self.get_active_proposals() # Include active proposals
         }
+        
+        # Include challenges if the environment has a challenge manager
+        if self.challenge_manager is not None:
+            # Get current challenges (both active and recently resolved)
+            state["current_challenges"] = self.challenge_manager.get_current_challenges()
+        
+        return state
 
     def to_dict(self) -> Dict[str, Any]:
         """Serializes the environment's state to a dictionary."""
