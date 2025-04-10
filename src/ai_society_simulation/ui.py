@@ -66,7 +66,7 @@ class SimulationUI:
             model = agent_data.get('model_identifier', 'N/A')
             mem_count = str(len(agent_data.get('memory', [])))
             # Use rich markup for color
-            table.add_row(f"[{color}]{agent_id}[/]", f"[{color}]{color}[/]", model, mem_count)
+            table.add_row(f"{agent_id}", f"{color}", model, mem_count)
 
         return Panel(table, title="Agent Inspector")
 
@@ -90,7 +90,7 @@ class SimulationUI:
             # Create a Rich Text object for the line
             line = Text()
             line.append(f"[{timestamp}] ", style="dim")
-            line.append(f"[{sender_color}]{sender_id}[/]", style=sender_color)
+            line.append(f"{sender_id}", style=sender_color)
             line.append(f": {content}")
             log_texts.append(line)
 
