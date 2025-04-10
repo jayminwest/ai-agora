@@ -48,11 +48,9 @@ agent_thinking: |
   Review the context (messages, knowledge, proposals) and choose your **single best action** according to the principles above.
   {voting_instructions}
 
-  Choose ONE action and respond ONLY with the corresponding JSON object (no explanations, preamble, or markdown formatting):
-
-  {action_list}
-
-  Your JSON response:
+  Choose the single best action to take by calling the appropriate available tool.
+  Do not respond with conversational text, only with the tool call required to perform your chosen action.
+  If no action is necessary or appropriate, use the 'NoAction' tool.
 
 tick_summary: |
   Summarize the key events of simulation tick {tick_number} based on the following data.

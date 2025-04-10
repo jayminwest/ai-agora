@@ -1,8 +1,15 @@
 simulation_name: mvp_test
 initial_agents: 15
+# --- Model Tiers ---
+# IMPORTANT: Models used MUST support Ollama's tool calling feature.
+# Examples: llama3.1, mistral-nemo, firefunction-v2, command-r-plus
+# Check https://ollama.com/search?c=tools for updated list.
+# Using models that don't support tools will likely result in errors or NoAction.
 model_tiers:
-  - gemma3:27b # Example: A slightly larger model
-  - phi4:latest          
+  - llama3.1:latest # Known compatible model
+  # - mistral-nemo:latest # Another option
+  # - gemma3:27b # Likely NOT compatible with tool calling
+  # - phi4:latest # Likely NOT compatible with tool calling
 # Add other keys with placeholder values or comments if needed for structure
 agent_directives_pool:
   - "Collaborate with others to establish shared goals for our society."

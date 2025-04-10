@@ -1,9 +1,10 @@
 """
-Defines potential actions agents can take.
+Defines potential actions agents can take and their corresponding tool definitions
+for Ollama's tool calling feature.
 """
 import logging
-from dataclasses import dataclass, asdict, is_dataclass
-from typing import Dict, Any, Type, Optional, Literal # Import Literal
+from dataclasses import dataclass, asdict, is_dataclass, fields
+from typing import Dict, Any, Type, Optional, Literal, List
 
 logger = logging.getLogger(__name__)
 
@@ -80,10 +81,173 @@ class VoteAction(Action):
     proposal_id: str
     vote: Literal["yes", "no", "abstain"]
 
-# --- Action Registry (for deserialization) ---
-# Simple registry to map action type names back to classes for from_dict
 
+# --- Tool Definitions for Ollama ---
+
+# Helper to generate basic property schema from dataclass fields
+def _get_properties_from_dataclass(dc: Type[Action]) -> Dict[str, Any]:
+    properties = {}
+    for field in fields(dc):
+        field_type = field.type
+        description = f"Parameter '{field.name}' for {dc.__name__}" # Basic description
+        # Basic type mapping (can be expanded)
+        if field_type == str:
+            properties[field.name] = {"type": "string", "description": description}
+        elif field_type == int:
+            properties[field.name] = {"type": "integer", "description": description}
+        elif field_type == bool:
+            properties[field.name] = {"type": "boolean", "description": description}
+        elif field_type == Optional[str]:
+             properties[field.name] = {"type": "string", "description": f"(Optional) {description}"}
+        elif getattr(field_type, '__origin__', None) == Literal:
+             # Handle Literal types for specific choices (like vote)
+             choices = list(field_type.__args__)
+             properties[field.name] = {"type": "string", "description": description, "enum": choices}
+        else:
+            # Default or skip complex types for now
+            properties[field.name] = {"type": "string", "description": f"{description} (complex type, treated as string)"}
+            logger.warning(f"Unsupported type {field_type} for tool parameter {field.name} in {dc.__name__}. Treating as string.")
+    return properties
+
+def _get_required_fields(dc: Type[Action]) -> List[str]:
+    required = []
+    for field in fields(dc):
+        # If the field type is not Optional (or doesn't have Optional in its origin for complex types like Optional[List[str]])
+        # and doesn't have a default value/factory, consider it required.
+        is_optional = getattr(field.type, '__origin__', None) is Optional or type(None) in getattr(field.type, '__args__', [])
+
+        if not is_optional and field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING:
+             # Special case: ProposeAction has optional fields depending on type, handle manually below
+             if dc is ProposeAction and field.name in ['content', 'target_knowledge_id', 'new_content']:
+                 continue
+             required.append(field.name)
+    return required
+
+
+# Define tool schemas for each action
+# Note: Descriptions should guide the LLM on *when* and *why* to use the tool.
+TOOLS_SCHEMA = [
+    {
+        "type": "function",
+        "function": {
+            "name": "NoAction",
+            "description": "Use this action when no other action is suitable or necessary in the current context. Allows the agent to pause and observe.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(NoAction),
+                "required": _get_required_fields(NoAction),
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "SendMessageAction",
+            "description": "Send a message to the shared communication channel for all agents to see. Use for discussion, asking questions, sharing opinions, or coordinating before proposing.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(SendMessageAction),
+                "required": _get_required_fields(SendMessageAction),
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "PublishKnowledgeAction",
+            "description": "Add a factual statement or agreed-upon summary to the shared knowledge base. Use *after* a proposal has passed or for simple, undisputed facts. Avoid proposing changes with this.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(PublishKnowledgeAction),
+                "required": _get_required_fields(PublishKnowledgeAction),
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "QueryKnowledgeAction",
+            "description": "Search the shared knowledge base for information using keywords. Use this *before* proposing knowledge additions or modifications to check for existing entries.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(QueryKnowledgeAction),
+                "required": _get_required_fields(QueryKnowledgeAction),
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ProposeAction",
+            "description": "Propose a formal change or addition to the society's rules or knowledge base. Requires discussion first. Specify the type of proposal (general, knowledge_add, knowledge_modify, knowledge_delete) and provide necessary details.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    # Manually define properties for ProposeAction due to conditional requirements
+                    "proposal_type": {
+                        "type": "string",
+                        "description": "The type of proposal.",
+                        "enum": list(ProposalType.__args__)
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "A clear description and justification for the proposal."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "The specific content to add (required for 'knowledge_add')."
+                    },
+                    "target_knowledge_id": {
+                        "type": "string",
+                        "description": "The ID of the knowledge item to modify or delete (required for 'knowledge_modify', 'knowledge_delete')."
+                    },
+                    "new_content": {
+                        "type": "string",
+                        "description": "The new content for the knowledge item (required for 'knowledge_modify')."
+                    }
+                },
+                # Required fields common to all proposal types
+                "required": ["proposal_type", "description"],
+                # Note: Ollama tool calling might not fully support conditional requirements based on 'proposal_type' yet.
+                # The LLM needs to be instructed via the prompt to provide the correct fields based on the type.
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "VoteAction",
+            "description": "Cast your vote (yes, no, or abstain) on an active proposal identified by its proposal_id. Voting is essential for collective decision-making.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(VoteAction),
+                "required": _get_required_fields(VoteAction),
+            },
+        },
+    },
+]
+
+def get_tool_definitions() -> List[Dict[str, Any]]:
+    """Returns the list of tool definitions for the Ollama API."""
+    return TOOLS_SCHEMA
+
+
+# --- Action Registry (for deserialization from tool calls or saved state) ---
+# Maps action class names (used as tool names) back to classes
 _ACTION_CLASSES = {
+    cls.__name__: cls for cls in [
+        NoAction,
+        SendMessageAction,
+        PublishKnowledgeAction,
+        QueryKnowledgeAction,
+        ProposeAction,
+        VoteAction,
+    ]
+}
+# Add other action classes here as they are created
+
+
+def _get_action_class(action_type_str: str) -> Optional[Type[Action]]:
     'NoAction': NoAction,
     'SendMessageAction': SendMessageAction,
     'PublishKnowledgeAction': PublishKnowledgeAction,

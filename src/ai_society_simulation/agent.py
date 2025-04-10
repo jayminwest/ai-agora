@@ -35,9 +35,7 @@ _ACTION_LIST_PROMPT_SECTION = """
 5. Record Agreed Fact (Use *after* proposal passes or for simple, undisputed facts):
    {{"_action_type": "PublishKnowledgeAction", "content": "Factual statement or summary of passed proposal."}}
 
-6. Do Nothing (If no meaningful action is possible):
-   {{"_action_type": "NoAction", "reason": "Optional concise reason."}}
-"""
+# Removed the large _ACTION_LIST_PROMPT_SECTION
 
 
 class Agent:
@@ -149,12 +147,12 @@ class Agent:
         Uses the LLM to decide on the next action based on memory and directives.
         Returns an Action object.
         """
-        logger.debug(f"Agent {self.agent_id} ({self.color}) starting think cycle.")
+        logger.debug(f"Agent {self.agent_id} ({self.color}) starting think cycle using tool calling.")
         from .llm_interface import call_ollama
-        from .actions import Action, NoAction # Keep necessary action imports
+        from .actions import Action, NoAction, _get_action_class # Import necessary actions and class getter
 
         # Retrieve the prompt template
-        prompt_template = self.prompts.get('agent_thinking')
+        prompt_template = self.prompts.get('agent_thinking') # Prompt now instructs to use tools
         if not prompt_template:
             logger.error(f"Agent {self.agent_id} ({self.color}) cannot think: 'agent_thinking' prompt template missing.")
             return NoAction(reason="Critical error: Agent thinking prompt template is missing.")
@@ -173,48 +171,80 @@ class Agent:
              return NoAction(reason=f"Critical error: Failed to format prompt template: {e}")
 
 
-        logger.debug(f"Agent {self.agent_id} ({self.color}) sending prompt to LLM: \n{prompt}")
+        logger.debug(f"Agent {self.agent_id} ({self.color}) sending prompt to LLM with tools.")
+
+        # Get tool definitions
+        tools = get_tool_definitions()
 
         try:
-            response_text = call_ollama(self.model_identifier, prompt)
-            logger.debug(f"Agent {self.agent_id} ({self.color}) received LLM response: {response_text}")
+            # Call LLM with tools, get back the message dictionary
+            response_message = call_ollama(
+                self.model_identifier,
+                prompt,
+                tools=tools
+                # request_json_format=False (default when using tools)
+            )
+            logger.debug(f"Agent {self.agent_id} ({self.color}) received LLM response message: {response_message}")
 
-            # Attempt to parse the response as JSON containing an action
-            try:
-                # Clean potential markdown code blocks if present
-                if response_text.strip().startswith("```json"):
-                    response_text = response_text.strip()[7:-3].strip()
-                elif response_text.strip().startswith("```"):
-                     response_text = response_text.strip()[3:-3].strip()
+            # Check for tool calls in the response
+            tool_calls = response_message.get('tool_calls')
 
-                action_data = json.loads(response_text)
-                if isinstance(action_data, dict) and '_action_type' in action_data:
-                    action = Action.from_dict(action_data)
-                    logger.info(f"Agent {self.agent_id} ({self.color}) decided action: {action}")
+            if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
+                # Process the first tool call for now
+                # TODO: Handle multiple tool calls if needed in the future
+                tool_call = tool_calls[0]
+                tool_name = tool_call.get('function', {}).get('name')
+                tool_args = tool_call.get('function', {}).get('arguments')
+
+                if not tool_name or not isinstance(tool_args, dict):
+                    logger.error(f"Agent {self.agent_id} ({self.color}) received invalid tool call structure: {tool_call}. Defaulting to NoAction.")
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": "Invalid tool call structure"}, "summary": "Thought resulted in invalid tool call"})
+                    return NoAction(reason="Invalid tool call structure received from LLM.")
+
+                # Find the corresponding action class
+                action_cls = _get_action_class(tool_name)
+                if not action_cls:
+                    logger.error(f"Agent {self.agent_id} ({self.color}) received call for unknown tool '{tool_name}'. Defaulting to NoAction.")
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": f"Unknown tool name: {tool_name}"}, "summary": f"Thought called unknown tool: {tool_name}"})
+                    return NoAction(reason=f"LLM called unknown tool: {tool_name}")
+
+                # Try to instantiate the action with the provided arguments
+                try:
+                    # TODO: Add validation of arguments against the tool schema if needed
+                    action = action_cls(**tool_args)
+                    logger.info(f"Agent {self.agent_id} ({self.color}) decided action via tool call: {action_cls.__name__}({tool_args})")
                     # Store the thought process leading to the action
-                    self.update_memories({"type": "thought", "content": {"prompt": prompt, "response": response_text, "action": action.to_dict()}, "summary": f"Decided action: {action.__class__.__name__}"})
+                    self.update_memories({"type": "thought", "content": {"prompt": prompt, "response": response_message, "action": action.to_dict()}, "summary": f"Decided action via tool: {action.__class__.__name__}"})
                     return action
-                else:
-                    # If JSON is valid but not the expected action format, log it and do nothing.
-                    logger.warning(f"Agent {self.agent_id} ({self.color}) produced valid JSON but not a recognized action format: {action_data}. Performing NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_text, "error": "Valid JSON but not action format"}, "summary": "Thought resulted in invalid action format"})
-                    return NoAction(reason="LLM response was valid JSON but not a recognized action format.")
+                except TypeError as e:
+                    logger.error(f"Agent {self.agent_id} ({self.color}) failed to create action {tool_name} from tool args {tool_args}: {e}. Defaulting to NoAction.")
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": f"TypeError creating action: {e}"}, "summary": f"Tool call arg mismatch for {tool_name}"})
+                    return NoAction(reason=f"LLM tool call arguments mismatch for {tool_name}: {e}")
+                except Exception as e:
+                     logger.error(f"Agent {self.agent_id} ({self.color}) failed unexpectedly creating action {tool_name} from tool args {tool_args}: {e}. Defaulting to NoAction.", exc_info=True)
+                     self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": f"Exception creating action: {e}"}, "summary": f"Error creating action {tool_name}"})
+                     return NoAction(reason=f"Error creating action {tool_name} from tool call: {e}")
 
-            except json.JSONDecodeError:
-                logger.warning(f"Agent {self.agent_id} ({self.color}) response was not valid JSON: '{response_text}'. Performing NoAction.")
-                self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_text, "error": "JSONDecodeError"}, "summary": "Thought resulted in invalid JSON"})
-                # Fallback: If response is not JSON, do nothing.
-                return NoAction(reason="LLM response was not valid JSON.")
-            except (ValueError, TypeError) as e:
-                # Catch errors during Action.from_dict (unknown type, bad keys)
-                logger.error(f"Agent {self.agent_id} ({self.color}) failed to create action from dict {action_data}: {e}. Defaulting to NoAction.")
-                self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_text, "error": str(e)}, "summary": f"Thought resulted in action creation error: {e}"})
-                return NoAction(reason=f"Error processing LLM response: {e}")
+            else:
+                # No tool call was made, check for content or treat as NoAction
+                response_content = response_message.get('content')
+                if response_content:
+                    # LLM responded with text instead of a tool call.
+                    # Decide how to handle this. For now, log it and default to NoAction.
+                    # Could potentially interpret as a SendMessageAction in the future.
+                    logger.warning(f"Agent {self.agent_id} ({self.color}) LLM responded with content instead of tool call: '{response_content[:100]}...'. Performing NoAction.")
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": "LLM responded with content, not tool call"}, "summary": "Thought resulted in text response, not action"})
+                    return NoAction(reason="LLM responded with text instead of selecting an action tool.")
+                else:
+                    # Empty response or unexpected structure
+                    logger.warning(f"Agent {self.agent_id} ({self.color}) LLM response had no tool calls and no content. Performing NoAction.")
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": "Empty LLM response"}, "summary": "Thought resulted in empty response"})
+                    return NoAction(reason="LLM response was empty.")
 
         except Exception as e:
-            logger.exception(f"Agent {self.agent_id} ({self.color}) encountered an error during LLM call: {e}")
-            self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "error": f"LLM call exception: {e}"}, "summary": "LLM call failed"})
-            # Return NoAction on general error during think cycle
+            # Catch errors during the call_ollama itself or unexpected issues
+            logger.exception(f"Agent {self.agent_id} ({self.color}) encountered an unexpected error during think cycle: {e}")
+            self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "error": f"Outer think cycle exception: {e}"}, "summary": "Think cycle failed unexpectedly"})
             return NoAction(reason=f"Exception during think cycle: {e}")
 
 
@@ -375,10 +405,11 @@ class Agent:
              voting_instruction_lines.append("**MANDATORY VOTE CHECK:** No proposals require your vote currently. Proceed with another action.")
         context['voting_instructions'] = "\n".join(voting_instruction_lines)
 
-        # 8. Action List (using the constant defined earlier)
-        context['action_list'] = _ACTION_LIST_PROMPT_SECTION
+        # 8. Action List (REMOVED - Tools are passed via API now)
+        # context['action_list'] = _ACTION_LIST_PROMPT_SECTION
 
         # TODO: Implement token counting and context window management more robustly
+        # TODO: Consider adding tool descriptions or a summary to the context if helpful for the LLM?
 
         return context
 
