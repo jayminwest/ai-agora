@@ -1,4 +1,4 @@
-# AI Society Simulation
+# AI Agora
 
 A simulation exploring the emergence of social structures and behaviors in a population of AI agents driven by Large Language Models (LLMs).
 
