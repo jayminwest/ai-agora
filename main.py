@@ -52,6 +52,15 @@ def setup_logging(log_level_str: str = "INFO", log_file: str = "simulation.log")
 
 # --- Main Execution ---
 if __name__ == "__main__":
+    # 0. Parse Command Line Arguments
+    parser = argparse.ArgumentParser(description="Run the AI Society Simulation.")
+    parser.add_argument(
+        '--new-sim',
+        action='store_true',
+        help="Force start of a new simulation, ignoring any existing save file."
+    )
+    args = parser.parse_args()
+
     # 1. Load Configuration
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -89,7 +98,15 @@ if __name__ == "__main__":
 
     # 4. Initialize or Load Simulation
     simulation: Simulation
-    loaded_state = load_state(save_filename)
+    loaded_state = None # Initialize loaded_state to None
+
+    # Ensure the save directory exists before trying to load or save
+    os.makedirs(DEFAULT_SAVE_DIR, exist_ok=True)
+
+    if not args.new_sim: # Only attempt to load if --new-sim is NOT provided
+        loaded_state = load_state(save_filename)
+    else:
+        logger.info("`--new-sim` flag provided. Starting a new simulation.")
 
     if loaded_state:
         logger.info("Attempting to load simulation state from file.")
