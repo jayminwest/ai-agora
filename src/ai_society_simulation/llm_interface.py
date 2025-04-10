@@ -85,13 +85,13 @@ def call_ollama(
             return message_obj # Return the Message object directly
         else:
             # Log details about why the check failed
-            if not isinstance(response, dict):
-                logger.error(f"Ollama response is not a dictionary. Type: {type(response)}, Content: {response}")
-            elif 'message' not in response:
-                logger.error(f"Ollama response dictionary is missing 'message' key. Content: {response}")
-            elif not isinstance(response['message'], Message):
-                # Log the specific type mismatch
-                logger.error(f"Value for 'message' key is not a Message object. Type: {type(response['message'])}, Content: {response['message']}")
+            if not isinstance(response, ChatResponse): # Check for ChatResponse type first
+                logger.error(f"Ollama response is not a ChatResponse object. Type: {type(response)}, Content: {response}")
+            elif not hasattr(response, 'message'): # Check for message attribute
+                 logger.error(f"Ollama ChatResponse object is missing 'message' attribute. Content: {response}")
+            elif not isinstance(response.message, Message): # Check type of message attribute
+                # Log the specific type mismatch for the message attribute
+                logger.error(f"Attribute 'message' is not a Message object. Type: {type(response.message)}, Content: {response.message}")
             else: # Should not be reachable if the main 'if' failed, but include for completeness
                  logger.error(f"Unknown reason for failing response structure check. Response: {response}")
 
