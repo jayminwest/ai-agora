@@ -290,10 +290,14 @@ class SimulationUI:
 
     def _create_summary_panel(self, sim_state: Dict[str, Any]) -> Panel:
         """Creates the tick summary panel."""
-        summary = sim_state.get('last_tick_summary', '(No summary generated yet)')
+        summary = sim_state.get('last_tick_summary') # Get value, could be None
+        # Ensure summary is a string, providing a default if it's None or empty
+        if not summary:
+            summary = '(No summary generated yet)'
         tick = sim_state.get('tick_count', 0)
-        title = f"Tick {tick} Summary" if summary else "Tick Summary"
+        title = f"Tick {tick} Summary"
         return Panel(Text(summary, style="italic"), title=title)
+
     def display_tick(self, simulation_state: dict, running: bool = False) -> Layout:
         """Updates the layout with the current simulation state and run status."""
         self.layout["header"].update(Panel(Text("AI Society Simulation", style="bold blue"), style="blue"))
