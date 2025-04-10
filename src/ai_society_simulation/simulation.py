@@ -2,17 +2,17 @@
 
 import logging
 import random
-from typing import Dict, Any, List, Optional, Callable # Import Callable
-import os # Import os for path joining
-import json
-import os
-from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Callable
+import os
+import json
+import yaml # Import yaml
+from datetime import datetime, timezone
+from ollama import Message # Import Message
 
 from .agent import Agent
 from .environment import Environment
 from .llm_interface import call_ollama
-from .utils import load_prompts # Import the prompt loading utility
+from .utils import load_prompts
 
 logger = logging.getLogger(__name__)
 
