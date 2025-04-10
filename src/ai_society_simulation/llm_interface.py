@@ -42,22 +42,6 @@ def call_ollama(
     Returns:
         The response Message object from the Ollama API on success.
         A dictionary representing a NoAction with an error reason on failure.
-
-    Args:
-        model_identifier: The name of the Ollama model to use.
-        prompt: The input prompt for the model.
-        tools: An optional list of tool definitions for the model to use.
-        stream_callback: An optional function to call with each response chunk during streaming.
-        request_json_format: If True (and no tools provided), requests JSON format.
-                           Generally False when using tools, as the structure comes from tool calls.
-
-    Returns:
-        The complete response message dictionary from the Ollama API.
-        This dictionary might contain 'content' or 'tool_calls'.
-        In case of errors, returns a dictionary representing a NoAction with an error reason.
-
-    Raises:
-        Exception: If the API call fails catastrophically (though most errors return the error dict).
     """
     logger.debug(f"Calling Ollama model '{model_identifier}'...")
     if tools:
