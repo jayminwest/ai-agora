@@ -284,11 +284,11 @@ class Agent:
                 if response_content:
                     logger.debug(f"Agent {self.agent_id} detected content response instead of tool call: '{response_content[:100]}...'")
                     # LLM responded with text instead of a tool call.
-                    # Decide how to handle this. For now, log it and default to NoAction.
-                    # Could potentially interpret as a SendMessageAction in the future.
-                    logger.warning(f"Agent {self.agent_id} ({self.color}) LLM responded with content instead of tool call: '{response_content[:100]}...'. Performing NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": "LLM responded with content, not tool call"}, "summary": "Thought resulted in text response, not action"})
-                    return NoAction(reason="LLM responded with text instead of selecting an action tool.")
+                    # Interpret this as a SendMessageAction for now.
+                    logger.info(f"Agent {self.agent_id} ({self.color}) LLM responded with content instead of tool call. Interpreting as SendMessageAction.")
+                    action = SendMessageAction(content=response_content)
+                    self.update_memories({"type": "thought", "content": {"prompt": prompt, "response": response_data_for_log, "action": action.to_dict(), "interpretation": "Inferred SendMessageAction from content response"}, "summary": f"Inferred SendMessageAction from content"})
+                    return action
                 else:
                     # Empty response or unexpected structure
                     logger.warning(f"Agent {self.agent_id} ({self.color}) LLM response had no tool calls and no content. Performing NoAction.")
