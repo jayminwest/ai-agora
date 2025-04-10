@@ -49,16 +49,16 @@ def setup_logging(log_level_str: str = "INFO", log_file: str = "simulation.log")
     if root_logger.hasHandlers():
         root_logger.handlers.clear()
 
-    # Create a console handler to also output to stderr
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(log_formatter)
+    # Create a RichHandler for console output that works with Live display
+    # It uses sensible defaults for formatting and level handling
+    rich_handler = RichHandler(level=log_level, log_time_format="[%X]", show_path=False) # Customize format slightly
 
     root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler) # Add console output back
+    root_logger.addHandler(rich_handler) # Use RichHandler for console
 
     # Example of setting a higher level for a noisy library
     # logging.getLogger("noisy_library").setLevel(logging.WARNING)
-    logging.info(f"Logging configured. Outputting to {log_file}")
+    logging.info(f"Logging configured. Outputting to {log_file} and console via RichHandler.") # Update log message slightly
 
 # --- Main Execution ---
 if __name__ == "__main__":
