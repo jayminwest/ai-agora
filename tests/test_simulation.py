@@ -40,10 +40,10 @@ def minimal_config():
         "enable_tick_summary": False,
     }
 
-# A fixture to create a basic Simulation instance
+# A fixture to create a basic Simulation instance using mocker for patching
 @pytest.fixture
-def simulation_instance(minimal_config, tmp_path):
-    """Creates a Simulation instance for testing."""
+def simulation_instance(minimal_config, tmp_path, mocker): # Add mocker fixture
+    """Creates a Simulation instance for testing, mocking LLM calls."""
     # Mock prompt loading if prompts.yaml isn't readily available/needed for basic tests
     # For now, assume prompts.yaml exists relative to project root or mock Simulation._load_prompts
     # Create a dummy prompts.yaml if needed for initialization
@@ -56,48 +56,50 @@ tick_summary: "Summary prompt for tick {tick_number}"
 """)
     minimal_config["prompts_file"] = str(prompts_path) # Point config to dummy file
 
-    # Mock the LLM call during agent initialization to avoid real API calls
-    # This is one area where mocking is often necessary for unit/integration tests
-    original_call_ollama = None
-    if 'ai_society_simulation.llm_interface' in pytest.importorskip('sys').modules:
-         from ai_society_simulation.llm_interface import call_ollama
-         original_call_ollama = call_ollama # Store original
-
+    # Define the mock function for call_ollama
     def mock_call_ollama(model_identifier, prompt, tools=None, stream_callback=None, request_json_format=False):
-        from ollama import Message # Import here to avoid circular dependency issues potentially
-        # Simulate responses needed for initialization
+        # Import Message inside the mock if needed, or consider if Agent really needs it
+        # If Agent only needs string content, mocks can return strings directly.
+        # Using a try-except block for robustness if ollama package isn't installed everywhere
+        try:
+            from ollama import Message
+        except ImportError:
+            from dataclasses import dataclass # Use dataclass for a simple mock structure
+            @dataclass
+            class MockMessage:
+                role: str
+                content: Optional[str]
+                tool_calls: Optional[List[Dict]] = None
+            Message = MockMessage
+
+        # Simulate responses needed for initialization and thinking
         if "personality" in prompt.lower():
+            # Assuming Agent.determine_personality expects a Message-like object
+            # If it just needs the string, return "Mock Personality" directly
             return Message(role="assistant", content="Mock Personality")
         elif "role determination" in prompt.lower():
              # Simulate proposing a unique role based on the initial ID
              agent_id_match = pytest.importorskip('re').search(r"currently identified as Agent (\S+)", prompt)
              proposed_role = f"MockRole_{agent_id_match.group(1)}" if agent_id_match else "MockRole_default"
-             # Return just the string content for role determination
+             # Return just the string content for role determination as required by Agent.determine_role
              return proposed_role
-        elif "personality" in prompt.lower():
-             # Personality still needs the Message object structure if Agent expects it
-             return Message(role="assistant", content="Mock Personality")
+        # Note: The personality check is handled by the first 'if' block.
         else:
-            # Default mock response for other calls (like thinking)
-            # For tool calling, return a mock NoAction tool call
+            # Default mock response for other calls (like agent thinking)
+            # Agent.think expects tool calls, so return a Message with tool_calls
             return Message(role="assistant", content=None, tool_calls=[
-                {'function': {'name': 'NoAction', 'arguments': {'reason': 'Mocked LLM call'}}}]
+                {'function': {'name': 'NoAction', 'arguments': {'reason': 'Mocked LLM thinking call'}}}]
             )
 
-    # Apply the mock
-    if 'ai_society_simulation.llm_interface' in pytest.importorskip('sys').modules:
-        pytest.importorskip('ai_society_simulation.llm_interface').call_ollama = mock_call_ollama
+    # Use mocker to patch the function where it's imported and used.
+    # The agent module imports call_ollama from llm_interface.
+    mocker.patch('ai_society_simulation.llm_interface.call_ollama', side_effect=mock_call_ollama)
 
-    # Create simulation instance
+    # Create simulation instance - Agent initialization will now use the mocked call_ollama
     sim = Simulation(minimal_config)
 
-    # Restore original function after test if it was mocked
-    if original_call_ollama:
-        yield sim # Yield the instance for the test
-        # Teardown: Restore original function
-        pytest.importorskip('ai_society_simulation.llm_interface').call_ollama = original_call_ollama
-    else:
-        yield sim # Yield if mocking wasn't applied
+    yield sim # Yield the instance for the test
+    # mocker automatically handles teardown/restoration of the patch
 
 
 def test_simulation_initialization(simulation_instance):
