@@ -33,8 +33,44 @@ class Agent:
         # More structured memory
         self.short_term_memory: Deque[Dict[str, Any]] = deque(maxlen=20) # Recent events
         self.knowledge_query_result: Optional[List[Dict[str, Any]]] = None # Result from last KB query
+        self.personality_and_motives: str = "Not yet determined." # Initialize personality attribute
         # self.long_term_memory: List[str] = [] # Placeholder for future LTM/Summaries
         logger.info(f"Agent {self.agent_id} ({self.color}) initialized with model {self.model_identifier}.")
+
+    def determine_personality(self) -> None:
+        """
+        Uses the LLM during initialization (Tick 0) to define its personality and motives.
+        """
+        logger.info(f"Agent {self.agent_id} ({self.color}) determining personality...")
+        from .llm_interface import call_ollama # Avoid circular import
+
+        # Simple prompt asking for personality based on initial info
+        prompt = (
+            f"You are Agent {self.agent_id}, identified by the color {self.color}.\n"
+            f"Your initial core directives are: {', '.join(self.directives)}.\n\n"
+            "Based *only* on this information, briefly describe your personality and primary motives within this simulated society. "
+            "Focus on how you might interact with others and approach discussions. "
+            "Respond with only the personality description (2-3 sentences max)."
+        )
+
+        try:
+            response_text = call_ollama(self.model_identifier, prompt)
+            # Clean up response (remove potential quotes or extra whitespace)
+            self.personality_and_motives = response_text.strip().strip('"').strip("'").strip()
+            logger.info(f"Agent {self.agent_id} ({self.color}) determined personality: {self.personality_and_motives}")
+            self.update_memories({
+                "type": "personality_set",
+                "content": {"prompt": prompt, "response": response_text},
+                "summary": f"Personality determined: {self.personality_and_motives[:60]}..."
+            })
+        except Exception as e:
+            logger.exception(f"Agent {self.agent_id} ({self.color}) failed to determine personality: {e}")
+            self.personality_and_motives = "Failed to determine personality due to error."
+            self.update_memories({
+                "type": "personality_error",
+                "content": {"prompt": prompt, "error": str(e)},
+                "summary": "Failed to determine personality."
+            })
 
     def perceive(self, environment_state: Dict[str, Any]) -> None:
         """
@@ -320,6 +356,7 @@ class Agent:
             "color": self.color,
             "directives": self.directives,
             "short_term_memory": list(self.short_term_memory), # Convert deque to list for JSON
+            "personality_and_motives": self.personality_and_motives, # Save personality
             # knowledge_query_result is transient, not saved
         }
 
@@ -350,6 +387,8 @@ class Agent:
                  logger.warning(f"STM item for agent {agent.agent_id} loaded without summary, generating one.")
 
         agent.short_term_memory = deque(loaded_stm_list, maxlen=stm_maxlen)
+        # Load personality, provide default if missing from old saves
+        agent.personality_and_motives = data.get("personality_and_motives", "Personality not found in save file.")
         # knowledge_query_result is initialized to None, not loaded from state
         agent.knowledge_query_result = None
         return agent

@@ -97,19 +97,67 @@ class SimulationUI:
 
         table = Table(title="Agents", show_header=True, header_style="bold magenta", expand=True)
         table.add_column("ID", style="dim", width=12, no_wrap=True)
-        table.add_column("Color", width=15, no_wrap=True)
-        table.add_column("Model", no_wrap=True)
-        table.add_column("Mem Cnt", justify="right", no_wrap=True)
+        table.add_column("Color", width=8, no_wrap=True) # Adjusted width
+        table.add_column("Model", no_wrap=True, min_width=15) # Adjusted width
+        table.add_column("STM Len", justify="right", no_wrap=True, width=7) # Use correct key and name
+        table.add_column("Last Action", no_wrap=True, min_width=15) # Add last action column back
 
         for agent_data in agents:
             agent_id = agent_data.get('agent_id', 'N/A')
             color = agent_data.get('color', 'white')
             model = agent_data.get('model_identifier', 'N/A')
-            mem_count = str(len(agent_data.get('memory', [])))
-            # Use rich markup for color in the ID column for visibility
-            table.add_row(f"[{color}]{agent_id}[/]", f"{color}", model, mem_count)
+            stm = agent_data.get('short_term_memory', []) # Use correct key 'short_term_memory'
+            stm_len = str(len(stm))
 
-        return Panel(table, title="Agent Inspector")
+            # Find the last action taken from memory (copied from dashboard logic)
+            last_action_type = "N/A"
+            for mem in reversed(stm):
+                if mem.get('type') == 'action_taken':
+                    action_dict = mem.get('action', {})
+                    last_action_type = action_dict.get('_action_type', 'Unknown')
+                    # Optionally add details like reason for NoAction
+                    if last_action_type == 'NoAction':
+                         reason = action_dict.get('reason')
+                         if reason:
+                             last_action_type += f" ({reason[:15]}...)" if len(reason) > 15 else f" ({reason})"
+                    elif last_action_type == 'SendMessageAction':
+                        content = action_dict.get('content', '')
+                        last_action_type += f" ({content[:15]}...)" if len(content) > 15 else f" ({content})"
+                    elif last_action_type == 'PublishKnowledgeAction':
+                        content = action_dict.get('content', '')
+                        last_action_type += f" ({content[:15]}...)" if len(content) > 15 else f" ({content})"
+                    elif last_action_type == 'QueryKnowledgeAction':
+                        query = action_dict.get('query', '')
+                        last_action_type += f" ({query[:15]}...)" if len(query) > 15 else f" ({query})"
+                    break # Found the latest action
+
+            # Use rich markup for color in the ID column for visibility
+            table.add_row(
+                f"[{color}]{agent_id}[/]",
+                f"[{color}]{color}[/]", # Display color name with its color
+                model,
+                stm_len,
+                last_action_type # Add last action type to the row
+            )
+
+
+        # --- Add Personality Display Below Table ---
+        personality_texts = []
+        for agent_data in agents:
+            agent_id = agent_data.get('agent_id', 'N/A')
+            color = agent_data.get('color', 'white')
+            personality = agent_data.get('personality_and_motives', 'N/A')
+            personality_texts.append(Text.from_markup(f"[{color}]{agent_id}[/]: {personality}"))
+
+        # Combine table and personality text using Group or just appending to Panel content
+        from rich.console import Group # Import Group
+        panel_content = Group(
+            table,
+            Text("\n--- Agent Personalities ---", style="bold underline"),
+            *personality_texts # Unpack the list of Text objects
+        )
+
+        return Panel(panel_content, title="Agent Inspector")
 
 
     def _create_message_log_panel(self, sim_state: Dict[str, Any]) -> Panel:

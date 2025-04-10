@@ -111,6 +111,12 @@ class Simulation:
             self.agents.append(agent)
             logger.info(f"Created Agent: {agent_id} (Model: {model_id}, Color: {color}, Directives: {initial_directives})")
 
+        # --- Tick 0: Determine Personality ---
+        logger.info("--- Starting Tick 0: Personality Determination ---")
+        for agent in self.agents:
+            agent.determine_personality()
+        logger.info("--- Finished Tick 0: Personality Determination ---")
+
         # Environment is already initialized in __init__
 
         # *** ADD A SEED MESSAGE from config ***
