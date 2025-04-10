@@ -27,7 +27,7 @@ A simulation exploring the emergence of social structures and behaviors in a pop
 ## Running the Simulation (MVP)
 
 ```bash
-python src/ai_society_simulation/main.py
+python main.py
 ```
 
 This will:
