@@ -521,21 +521,21 @@ class Agent:
                 num_results = len(self.knowledge_query_result)
                 action_summary = f"Queried knowledge base ('{action.query[:40]}...'), found {num_results} results."
                 logger.info(f"Agent {self.agent_id} ({self.color}) {action_summary}") # Log query result count
-           elif isinstance(action, GatherResourceAction):
-               res_type = action.resource_type
-               gather_amount = environment.get_gather_amount(res_type)
-               if gather_amount > 0:
-                   success = environment.modify_resource(res_type, gather_amount)
-                   if success:
-                       action_summary = f"Gathered {gather_amount:.1f} {res_type}."
-                   else:
-                       # This case might not happen if modify_resource always returns True on partial success
-                       action_summary = f"Attempted to gather {res_type}, but failed (e.g., invalid type)."
-                       logger.warning(f"Agent {self.agent_id} failed to gather {res_type} (modify_resource returned False).")
-               else:
-                   action_summary = f"Attempted to gather {res_type}, but gather amount is zero or negative in config."
-                   logger.warning(f"Agent {self.agent_id} attempted to gather {res_type} with non-positive gather amount configured.")
-           elif isinstance(action, ProposeAction):
+            elif isinstance(action, GatherResourceAction):
+                res_type = action.resource_type
+                gather_amount = environment.get_gather_amount(res_type)
+                if gather_amount > 0:
+                    success = environment.modify_resource(res_type, gather_amount)
+                    if success:
+                        action_summary = f"Gathered {gather_amount:.1f} {res_type}."
+                    else:
+                        # This case might not happen if modify_resource always returns True on partial success
+                        action_summary = f"Attempted to gather {res_type}, but failed (e.g., invalid type)."
+                        logger.warning(f"Agent {self.agent_id} failed to gather {res_type} (modify_resource returned False).")
+                else:
+                    action_summary = f"Attempted to gather {res_type}, but gather amount is zero or negative in config."
+                    logger.warning(f"Agent {self.agent_id} attempted to gather {res_type} with non-positive gather amount configured.")
+            elif isinstance(action, ProposeAction):
                 # Pass the relevant parts of the action to the environment
                 proposal_id = environment.register_proposal(self.agent_id, action.to_dict())
                 action_summary = f"Proposed (ID: {proposal_id}, Type: {action.proposal_type}): {action.description[:40]}..."
