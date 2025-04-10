@@ -81,7 +81,8 @@ class SimulationUI:
         return self.layout
 
     def display_summary(self, simulation_state: dict):
-        """Displays a final summary (placeholder)."""
+        """Displays a final summary (placeholder - logs info instead of printing)."""
         # This might be used outside the Live display, e.g., at the very end.
-        logger.info("Displaying final summary (placeholder).")
-        print(f"Simulation ended at tick {simulation_state.get('tick_count', 'N/A')}")
+        tick_count = simulation_state.get('tick_count', 'N/A')
+        logger.info(f"Simulation ended at tick {tick_count}. (Summary display placeholder)")
+        # If a visible summary is needed after Live exits, it should be printed in main.py

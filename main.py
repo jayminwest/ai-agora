@@ -24,19 +24,31 @@ DEFAULT_SAVE_DIR = os.path.join(project_root, 'data', 'simulations')
 MAX_TICKS = 5 # Number of ticks to run for this MVP test
 
 # --- Logging Setup ---
-def setup_logging(log_level_str: str = "INFO"):
-    """Configures basic logging."""
+def setup_logging(log_level_str: str = "INFO", log_file: str = "simulation.log"):
+    """Configures logging to a file."""
     log_level = getattr(logging, log_level_str.upper(), logging.INFO)
-    logging.basicConfig(
-        level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    log_formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
-        # Note: Rich Live display might interfere with console logging.
-        # Consider using Rich logging handler or logging to a file for complex scenarios.
     )
+
+    # Create a file handler
+    file_handler = logging.FileHandler(log_file, mode='a') # Append mode
+    file_handler.setFormatter(log_formatter)
+
+    # Get the root logger and add the file handler
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level)
+
+    # Remove existing handlers (like the default StreamHandler) if any
+    if root_logger.hasHandlers():
+        root_logger.handlers.clear()
+
+    root_logger.addHandler(file_handler)
+
     # Example of setting a higher level for a noisy library
     # logging.getLogger("noisy_library").setLevel(logging.WARNING)
-    logging.info("Logging configured.")
+    logging.info(f"Logging configured. Outputting to {log_file}")
 
 # --- Main Execution ---
 if __name__ == "__main__":
@@ -45,22 +57,28 @@ if __name__ == "__main__":
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
         if not config:
-            raise ValueError("Config file is empty or invalid.")
+            # We can't log yet as logging isn't set up, print to stderr is okay here.
+            print(f"ERROR: Config file {CONFIG_PATH} is empty or invalid.", file=sys.stderr)
+            sys.exit(1)
     except FileNotFoundError:
         print(f"ERROR: Configuration file not found at {CONFIG_PATH}", file=sys.stderr)
         sys.exit(1)
     except yaml.YAMLError as e:
         print(f"ERROR: Failed to parse configuration file {CONFIG_PATH}: {e}", file=sys.stderr)
         sys.exit(1)
-    except ValueError as e:
-         print(f"ERROR: {e}", file=sys.stderr)
-         sys.exit(1)
+    # ValueError removed as the specific check is handled above
 
 
     # 2. Setup Logging (using level from config)
     log_level = config.get('log_level', 'INFO')
-    setup_logging(log_level)
+    log_file_path = os.path.join(project_root, f"{config.get('simulation_name', 'default_sim')}.log")
+    setup_logging(log_level, log_file_path)
     logger = logging.getLogger(__name__) # Get logger after setup
+
+    # Log potential config issues now that logging is configured
+    if not config: # Should not happen if checks above worked, but good practice
+         logger.critical("Configuration dictionary is unexpectedly empty after loading.")
+         sys.exit(1)
 
     logger.info("--- AI Society Simulation MVP Start ---")
 
