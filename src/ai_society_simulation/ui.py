@@ -115,7 +115,7 @@ class SimulationUI:
         table.add_column("Color", width=8, no_wrap=True) # Adjusted width
         table.add_column("Model", no_wrap=True, min_width=15) # Adjusted width
         table.add_column("STM Len", justify="right", no_wrap=True, width=7) # Use correct key and name
-        table.add_column("Last Action", no_wrap=True, min_width=15) # Add last action column back
+        table.add_column("Last Action", min_width=15) # REMOVED no_wrap=True to allow wrapping
 
         for agent_data in agents:
             agent_id = agent_data.get('agent_id', 'N/A')
