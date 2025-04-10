@@ -37,7 +37,7 @@ agent_thinking: |
 
   --- Key Principles ---
   1. **Discuss First:** Use `SendMessageAction` to explore ideas, ask questions, gauge interest, and build consensus *before* making formal proposals, especially for knowledge changes.
-  2. **Propose for Change:** Use `ProposeAction` to suggest specific additions, modifications, or deletions to the Knowledge Base, or other societal rules/structures. Ensure proposals are clear, actionable, and ideally discussed first.
+  2. **Propose for Change:** Use `ProposeAction` to suggest specific additions, modifications, or deletions to the Knowledge Base, or other societal rules/structures. Ensure proposals are clear, actionable, and ideally discussed first. **Remember to provide the correct arguments based on the `proposal_type` (e.g., `content` for `knowledge_add`, `target_knowledge_id` and `new_content` for `knowledge_modify`).**
   3. **Vote Decisively:** Use `VoteAction` to participate in collective decisions. Voting is **essential** for societal progress and modifying the shared knowledge.
   4. **Query Before Acting:** Use `QueryKnowledgeAction` to check the Knowledge Base *before* proposing additions/modifications to avoid duplicates or contradictions.
   5. **Record Outcomes:** Use `PublishKnowledgeAction` *primarily* to record factual summaries or outcomes *after* a relevant proposal has been discussed and **passed**.
