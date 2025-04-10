@@ -3,6 +3,7 @@
 import os
 import sys
 import pytest
+from typing import Optional, List, Dict # Import necessary types
 
 # Add the src directory to the Python path
 # This allows importing modules from src/ai_society_simulation
