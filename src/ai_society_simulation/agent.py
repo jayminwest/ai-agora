@@ -12,7 +12,10 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .environment import Environment
-    from .actions import Action, get_tool_definitions # Import Action and tool definitions getter
+    from .actions import Action # Import Action
+
+# Import the function directly for runtime use
+from .actions import get_tool_definitions
 
 # --- Action List for Prompt (REMOVED - Now using tool definitions) ---
 # _ACTION_LIST_PROMPT_SECTION = """
