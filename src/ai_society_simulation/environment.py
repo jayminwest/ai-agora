@@ -140,11 +140,51 @@ class Environment:
                 logger.info(f"Knowledge added via proposal {proposal['proposal_id']}, new ID: {new_id}")
                 proposal['status'] = 'executed'
                 return True
-            # TODO: Implement modify and delete logic here later if needed
-            # elif prop_type == 'knowledge_modify': ...
-            # elif prop_type == 'knowledge_delete': ...
+            elif prop_type == 'knowledge_modify':
+                target_id = proposal.get('target_knowledge_id')
+                new_content = proposal.get('new_content')
+                if not target_id or new_content is None: # Check if new_content is explicitly provided (even if empty string)
+                    logger.error(f"Cannot execute knowledge_modify proposal {proposal['proposal_id']}: Missing target_knowledge_id or new_content.")
+                    proposal['status'] = 'error'
+                    return False
+                # Find the item and update it
+                item_found = False
+                for item in self.shared_knowledge_base:
+                    if item.get('id') == target_id:
+                        old_content = item.get('content', '')
+                        item['content'] = new_content
+                        item['timestamp'] = datetime.now(timezone.utc).isoformat() # Update timestamp
+                        item['source_agent_id'] = f"System (Modified via Proposal {proposal['proposal_id']})" # Update source
+                        logger.info(f"Knowledge item {target_id} modified via proposal {proposal['proposal_id']}. Old content: '{old_content[:50]}...', New content: '{new_content[:50]}...'")
+                        item_found = True
+                        break
+                if not item_found:
+                    logger.error(f"Cannot execute knowledge_modify proposal {proposal['proposal_id']}: Target knowledge item {target_id} not found.")
+                    proposal['status'] = 'error'
+                    return False
+                proposal['status'] = 'executed'
+                return True
+            elif prop_type == 'knowledge_delete':
+                target_id = proposal.get('target_knowledge_id')
+                if not target_id:
+                    logger.error(f"Cannot execute knowledge_delete proposal {proposal['proposal_id']}: Missing target_knowledge_id.")
+                    proposal['status'] = 'error'
+                    return False
+                # Find the item and remove it (more robustly: filter list)
+                initial_len = len(self.shared_knowledge_base)
+                self.shared_knowledge_base = [item for item in self.shared_knowledge_base if item.get('id') != target_id]
+                final_len = len(self.shared_knowledge_base)
+                if final_len < initial_len:
+                    logger.info(f"Knowledge item {target_id} deleted via proposal {proposal['proposal_id']}.")
+                    proposal['status'] = 'executed'
+                    return True
+                else:
+                    logger.error(f"Cannot execute knowledge_delete proposal {proposal['proposal_id']}: Target knowledge item {target_id} not found.")
+                    proposal['status'] = 'error'
+                    return False
             else:
-                logger.warning(f"Knowledge proposal {proposal['proposal_id']} has unhandled type '{prop_type}'. Marking executed without action.")
+                # Includes 'general' proposals or any other unhandled type
+                logger.warning(f"Proposal {proposal['proposal_id']} has unhandled type '{prop_type}' for knowledge execution. Marking executed without KB action.")
                 proposal['status'] = 'executed' # Mark as handled even if type is unknown/general
                 return True
         except Exception as e:

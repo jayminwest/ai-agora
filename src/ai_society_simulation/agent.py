@@ -316,13 +316,26 @@ class Agent:
         prompt_lines.extend([
             "Based on your directives and the context provided above (messages, knowledge, proposals), decide your next single action.",
             "Your primary goal is societal progress through discussion, deliberation, and collective action via proposals.",
-            "1. **Discuss First:** Use `SendMessageAction` to explore ideas, ask questions, gauge interest, and build consensus *before* making formal proposals.",
-            "2. **Propose Thoughtfully:** Once an idea seems to have support or requires a formal decision, use `ProposeAction` to make a *specific, actionable* proposal.",
-            "   - Avoid proposing things that haven't been discussed or seem unlikely to pass.",
-            "   - Ensure your proposal description is clear and concise.",
-            "3. **Vote Actively:** Regularly review active proposals (see list above). Use `VoteAction` to make your voice heard. Voting is crucial for progress. Prioritize voting on proposals relevant to ongoing discussions or your directives.",
-            "4. **Manage Knowledge:** Use `PublishKnowledgeAction` for agreed-upon facts (often *after* a proposal passes) and `QueryKnowledgeAction` to find existing information.",
+            "The **Shared Knowledge Base** represents the society's agreed-upon facts and structures. Changes to it **MUST** be made through the proposal system.",
+            "",
+            "--- Key Principles ---",
+            "1. **Discuss First:** Use `SendMessageAction` to explore ideas, ask questions, gauge interest, and build consensus *before* making formal proposals, especially for knowledge changes.",
+            "2. **Propose for Change:** Use `ProposeAction` to suggest specific additions, modifications, or deletions to the Knowledge Base, or other societal rules/structures. Ensure proposals are clear, actionable, and ideally discussed first.",
+            "3. **Vote Decisively:** Use `VoteAction` to participate in collective decisions. Voting is **essential** for societal progress and modifying the shared knowledge.",
+            "4. **Query Before Acting:** Use `QueryKnowledgeAction` to check the Knowledge Base *before* proposing additions/modifications to avoid duplicates or contradictions.",
+            "5. **Record Outcomes:** Use `PublishKnowledgeAction` *primarily* to record factual summaries or outcomes *after* a relevant proposal has been discussed and **passed**.",
+            "",
+            "--- Your Task ---",
+            f"Current Simulation Tick: {current_tick}.",
         ])
+        if forced_vote_interval > 0:
+            next_forced_vote_tick = ((current_tick // forced_vote_interval) + 1) * forced_vote_interval
+            prompt_lines.append(f"The next mandatory voting check is at Tick {next_forced_vote_tick}.")
+
+        prompt_lines.extend([
+            "Review the context (messages, knowledge, proposals) and choose your **single best action** according to the principles above.",
+        ])
+
 
         # Voting Logic (Mandatory Check and General Consideration)
         can_vote = False
@@ -346,30 +359,32 @@ class Agent:
 
         prompt_lines.extend([
             "", # Add spacing
-            "Use `PublishKnowledgeAction` for agreed-upon facts or summaries (often after a proposal passes).",
-            "Use `QueryKnowledgeAction` if you need specific information before acting.",
+            # No message needed if not forced tick and no proposals to vote on.
+
+        prompt_lines.extend([
+            "", # Add spacing
+            "Choose ONE action and respond ONLY with the corresponding JSON object (no explanations, preamble, or markdown formatting):",
             "",
-            "Choose ONE of the following actions and respond ONLY with the corresponding JSON object (no explanations, preamble, or markdown formatting):",
-            "",
-            "1. Discuss & Converse: Continue the conversation, ask questions, or respond to others.",
+            "1. Discuss / Converse:",
             '   {"_action_type": "SendMessageAction", "content": "Your conversational message here."}',
             "",
-            "2. Formalize an Idea: Propose a specific rule, structure, or knowledge addition for voting.",
-            '   {"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}',
-            '   {"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}',
-            # Add examples for modify/delete later if implemented
+            "2. Propose Change (Requires Discussion First!):",
+            '   - General Proposal: {"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}',
+            '   - Add Knowledge: {"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}',
+            '   - Modify Knowledge: {"_action_type": "ProposeAction", "proposal_type": "knowledge_modify", "description": "Reason for modifying this knowledge.", "target_knowledge_id": "kb_xxxxxx", "new_content": "The updated knowledge content."}',
+            '   - Delete Knowledge: {"_action_type": "ProposeAction", "proposal_type": "knowledge_delete", "description": "Reason for deleting this knowledge.", "target_knowledge_id": "kb_xxxxxx"}',
             "",
-            "3. Vote: Cast your vote on an existing, active proposal.",
+            "3. Vote on Active Proposal:",
             '   {"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"}', # Or "no", "abstain"
             "",
-            "4. Record Knowledge: Add a factual statement or summary to the knowledge base.",
-            '   {"_action_type": "PublishKnowledgeAction", "content": "Your factual knowledge statement here."}',
-            "",
-            "5. Seek Information: Query the knowledge base.",
+            "4. Query Knowledge Base:",
             '   {"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}',
             "",
-            "6. Do Nothing: Only if you have absolutely nothing relevant to contribute or act upon.",
-            '   {"_action_type": "NoAction", "reason": "Optional concise reason for doing nothing."}',
+            "5. Record Agreed Fact (Use *after* proposal passes or for simple, undisputed facts):",
+            '   {"_action_type": "PublishKnowledgeAction", "content": "Factual statement or summary of passed proposal."}',
+            "",
+            "6. Do Nothing (If no meaningful action is possible):",
+            '   {"_action_type": "NoAction", "reason": "Optional concise reason."}',
             "",
             "Your JSON response:"
         ])
