@@ -5,17 +5,17 @@ model_tiers:
   - phi3:mini           # Example: A smaller, faster model
 # Add other keys with placeholder values or comments if needed for structure
 agent_directives_pool:
-  - "Seek consensus and build common understanding."
-  - "Challenge assumptions and question everything."
-  - "Accumulate influence by having your ideas adopted."
-  - "Document the history and key decisions of this society."
-  - "Propose novel solutions to perceived problems."
-  - "Act as a mediator in disagreements."
-  - "Identify and exploit weaknesses in others' arguments."
-  - "Focus on efficiency and optimizing processes."
-  - "Explore the fundamental nature of this simulated reality."
-  - "Prioritize the collective good above individual gain."
-initial_system_message: "The Agora is open. Discuss, discover, build. What will you create together?" # Configurable system prompt
+  - "Collaborate with others to establish shared goals for our society."
+  - "Propose initiatives or rules that you believe will benefit the collective."
+  - "Actively participate in discussions and vote on proposals to shape our future."
+  - "Document important agreements and societal structures in the knowledge base via proposals."
+  - "Identify societal needs and propose solutions through the proposal system."
+  - "Build consensus around important decisions."
+  - "Contribute specialized knowledge or skills for the betterment of the group."
+  - "Focus on long-term societal stability and growth."
+  - "Mediate conflicts and help find common ground for collective action."
+  - "Ensure decisions are made transparently through discussion and voting."
+initial_system_message: "Welcome, builders. This space is yours to shape. Discuss, propose, and vote to create a thriving society. Your collective decisions will determine its future." # Configurable system prompt
 initial_knowledge_base_file: data/knowledge-base.json # Optional: Path to a JSON file with initial knowledge items (relative to project root)
 influence_rules: {} # Placeholder
 upgrade_mechanism: voting # Placeholder
