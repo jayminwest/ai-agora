@@ -11,14 +11,12 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .environment import Environment
-    from .actions import Action
+    from .actions import Action, get_tool_definitions # Import Action and tool definitions getter
 
-# --- Action List for Prompt ---
-# Define this once at the module level or load from config/prompts if needed
-# This ensures the prompt always shows the available actions consistently.
-_ACTION_LIST_PROMPT_SECTION = """
-1. Discuss / Converse:
-   {{"_action_type": "SendMessageAction", "content": "Your conversational message here."}}
+# --- Action List for Prompt (REMOVED - Now using tool definitions) ---
+# _ACTION_LIST_PROMPT_SECTION = """
+# 1. Discuss / Converse:
+#    {{"_action_type": "SendMessageAction", "content": "Your conversational message here."}}
 
 2. Propose Change (Requires Discussion First!):
    - General Proposal: {{"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}}
