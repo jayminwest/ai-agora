@@ -86,49 +86,62 @@ class Agent:
         logger.debug(f"Agent {self.agent_id} personality prompt:\n{prompt}")
 
         try:
-            # call_ollama now returns the message dictionary
-            response_message = call_ollama(
+            # call_ollama now returns a Message object or an error dictionary
+            response_obj = call_ollama(
                 self.model_identifier,
                 prompt,
                 request_json_format=False # Request plain text for personality description
             )
 
-            # Extract the content string from the message dictionary
-            personality_text = response_message.get('content')
-
-            if isinstance(personality_text, str):
-                # Clean up response (remove potential quotes or extra whitespace)
-                self.personality_and_motives = personality_text.strip().strip('"').strip("'").strip()
-                logger.info(f"Agent {self.agent_id} ({self.color}) determined personality: {self.personality_and_motives}")
-                self.update_memories({
-                    "type": "personality_set",
-                    "content": {"prompt": prompt, "response": response_message}, # Log the full response message
-                    "summary": f"Personality determined: {self.personality_and_motives[:60]}..."
-                })
-            else:
-                logger.error(f"Agent {self.agent_id} ({self.color}) received non-string content for personality: {personality_text}")
-                self.personality_and_motives = "Failed to determine personality (invalid response content)."
+            # Check if the response is a Message object (success) or dict (error)
+            if isinstance(response_obj, Message):
+                personality_text = response_obj.content
+                if isinstance(personality_text, str):
+                    # Clean up response
+                    self.personality_and_motives = personality_text.strip().strip('"').strip("'").strip()
+                    logger.info(f"Agent {self.agent_id} ({self.color}) determined personality: {self.personality_and_motives}")
+                    # Log the response object's content for memory
+                    self.update_memories({
+                        "type": "personality_set",
+                        "content": {"prompt": prompt, "response": {"role": response_obj.role, "content": response_obj.content}}, # Log relevant parts
+                        "summary": f"Personality determined: {self.personality_and_motives[:60]}..."
+                    })
+                else:
+                    logger.error(f"Agent {self.agent_id} ({self.color}) received Message object with non-string content for personality: {personality_text}")
+                    self.personality_and_motives = "Failed to determine personality (invalid response content type)."
+                    self.update_memories({
+                        "type": "personality_error",
+                        "content": {"prompt": prompt, "response": {"role": response_obj.role, "content": personality_text}, "error": "Non-string content in Message"},
+                        "summary": "Failed to determine personality (invalid content type)."
+                    })
+            elif isinstance(response_obj, dict): # Handle error dictionary from call_ollama
+                error_reason = response_obj.get('reason', 'Unknown error from LLM call.')
+                logger.error(f"Agent {self.agent_id} ({self.color}) failed to determine personality. LLM call returned error: {error_reason}")
+                self.personality_and_motives = f"Failed to determine personality ({error_reason})."
                 self.update_memories({
                     "type": "personality_error",
-                    "content": {"prompt": prompt, "response": response_message, "error": "Non-string content received"},
-                    "summary": "Failed to determine personality (invalid content)."
+                    "content": {"prompt": prompt, "response": response_obj, "error": "LLM call failed"},
+                    "summary": f"Failed to determine personality ({error_reason})."
+                })
+            else: # Should not happen if call_ollama adheres to return types
+                 logger.error(f"Agent {self.agent_id} ({self.color}) received unexpected type from call_ollama: {type(response_obj)}")
+                 self.personality_and_motives = "Failed to determine personality (unexpected LLM response type)."
+                 self.update_memories({
+                    "type": "personality_error",
+                    "content": {"prompt": prompt, "response": str(response_obj), "error": "Unexpected LLM response type"},
+                    "summary": "Failed to determine personality (unexpected type)."
                 })
 
-        except Exception as e:
-            logger.exception(f"Agent {self.agent_id} ({self.color}) failed to determine personality: {e}")
-            self.personality_and_motives = "Failed to determine personality due to error."
+        except Exception as e: # Catch other potential errors during processing
+            logger.exception(f"Agent {self.agent_id} ({self.color}) encountered an unexpected error during personality determination: {e}")
+            self.personality_and_motives = "Failed to determine personality due to processing error."
+            # Ensure memory is updated even if an outer exception occurs
+            # Note: response_obj might not be defined if error happened before call_ollama
+            response_data_for_log = str(response_obj) if 'response_obj' in locals() else "LLM call not completed"
             self.update_memories({
                 "type": "personality_error",
-                "content": {"prompt": prompt, "response": response_message}, # Use response_message here
-                "summary": f"Personality determined: {self.personality_and_motives[:60]}..."
-            })
-        except Exception as e:
-            logger.exception(f"Agent {self.agent_id} ({self.color}) failed to determine personality: {e}")
-            self.personality_and_motives = "Failed to determine personality due to error."
-            self.update_memories({
-                "type": "personality_error",
-                "content": {"prompt": prompt, "error": str(e)},
-                "summary": "Failed to determine personality."
+                "content": {"prompt": prompt, "response": response_data_for_log, "error": str(e)},
+                "summary": "Failed to determine personality (processing error)."
             })
 
     def perceive(self, environment_state: Dict[str, Any]) -> None:
@@ -198,20 +211,35 @@ class Agent:
         tools = get_tool_definitions()
 
         try:
-            # Call LLM with tools, get back the message dictionary
-            response_message = call_ollama(
+            # Call LLM with tools, get back a Message object or an error dictionary
+            response_obj = call_ollama(
                 self.model_identifier,
                 prompt,
                 tools=tools
                 # request_json_format=False (default when using tools)
             )
-            logger.debug(f"Agent {self.agent_id} ({self.color}) received LLM response message: {response_message}")
+            logger.debug(f"Agent {self.agent_id} ({self.color}) received LLM response object: {response_obj}")
 
-            # Check for tool calls in the response
-            tool_calls = response_message.get('tool_calls')
+            # Check if the response is a Message object (success) or dict (error)
+            if not isinstance(response_obj, Message):
+                 # Handle error dictionary from call_ollama
+                error_reason = response_obj.get('reason', 'Unknown error from LLM call.') if isinstance(response_obj, dict) else "Unknown LLM response type"
+                logger.error(f"Agent {self.agent_id} ({self.color}) failed think cycle. LLM call returned error: {error_reason}")
+                self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_obj, "error": "LLM call failed"}, "summary": f"Think cycle failed ({error_reason})."})
+                return NoAction(reason=f"LLM call failed: {error_reason}")
+
+            # --- Process successful Message object ---
+            tool_calls = response_obj.tool_calls # Access attribute directly
+
+            # Prepare response data for logging memory
+            response_data_for_log = {
+                "role": response_obj.role,
+                "content": response_obj.content,
+                "tool_calls": response_obj.tool_calls
+            }
 
             if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
-                # Process the first tool call for now
+                # Process the first tool call
                 # TODO: Handle multiple tool calls if needed in the future
                 tool_call = tool_calls[0]
                 tool_name = tool_call.get('function', {}).get('name')
@@ -219,14 +247,14 @@ class Agent:
 
                 if not tool_name or not isinstance(tool_args, dict):
                     logger.error(f"Agent {self.agent_id} ({self.color}) received invalid tool call structure: {tool_call}. Defaulting to NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": "Invalid tool call structure"}, "summary": "Thought resulted in invalid tool call"})
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": "Invalid tool call structure"}, "summary": "Thought resulted in invalid tool call"})
                     return NoAction(reason="Invalid tool call structure received from LLM.")
 
                 # Find the corresponding action class
                 action_cls = _get_action_class(tool_name)
                 if not action_cls:
                     logger.error(f"Agent {self.agent_id} ({self.color}) received call for unknown tool '{tool_name}'. Defaulting to NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": f"Unknown tool name: {tool_name}"}, "summary": f"Thought called unknown tool: {tool_name}"})
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"Unknown tool name: {tool_name}"}, "summary": f"Thought called unknown tool: {tool_name}"})
                     return NoAction(reason=f"LLM called unknown tool: {tool_name}")
 
                 # Try to instantiate the action with the provided arguments
@@ -235,37 +263,39 @@ class Agent:
                     action = action_cls(**tool_args)
                     logger.info(f"Agent {self.agent_id} ({self.color}) decided action via tool call: {action_cls.__name__}({tool_args})")
                     # Store the thought process leading to the action
-                    self.update_memories({"type": "thought", "content": {"prompt": prompt, "response": response_message, "action": action.to_dict()}, "summary": f"Decided action via tool: {action.__class__.__name__}"})
+                    self.update_memories({"type": "thought", "content": {"prompt": prompt, "response": response_data_for_log, "action": action.to_dict()}, "summary": f"Decided action via tool: {action.__class__.__name__}"})
                     return action
                 except TypeError as e:
                     logger.error(f"Agent {self.agent_id} ({self.color}) failed to create action {tool_name} from tool args {tool_args}: {e}. Defaulting to NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": f"TypeError creating action: {e}"}, "summary": f"Tool call arg mismatch for {tool_name}"})
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"TypeError creating action: {e}"}, "summary": f"Tool call arg mismatch for {tool_name}"})
                     return NoAction(reason=f"LLM tool call arguments mismatch for {tool_name}: {e}")
                 except Exception as e:
                      logger.error(f"Agent {self.agent_id} ({self.color}) failed unexpectedly creating action {tool_name} from tool args {tool_args}: {e}. Defaulting to NoAction.", exc_info=True)
-                     self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": f"Exception creating action: {e}"}, "summary": f"Error creating action {tool_name}"})
+                     self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"Exception creating action: {e}"}, "summary": f"Error creating action {tool_name}"})
                      return NoAction(reason=f"Error creating action {tool_name} from tool call: {e}")
 
             else:
                 # No tool call was made, check for content or treat as NoAction
-                response_content = response_message.get('content')
+                response_content = response_obj.content # Access attribute
                 if response_content:
                     # LLM responded with text instead of a tool call.
                     # Decide how to handle this. For now, log it and default to NoAction.
                     # Could potentially interpret as a SendMessageAction in the future.
                     logger.warning(f"Agent {self.agent_id} ({self.color}) LLM responded with content instead of tool call: '{response_content[:100]}...'. Performing NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": "LLM responded with content, not tool call"}, "summary": "Thought resulted in text response, not action"})
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": "LLM responded with content, not tool call"}, "summary": "Thought resulted in text response, not action"})
                     return NoAction(reason="LLM responded with text instead of selecting an action tool.")
                 else:
                     # Empty response or unexpected structure
                     logger.warning(f"Agent {self.agent_id} ({self.color}) LLM response had no tool calls and no content. Performing NoAction.")
-                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_message, "error": "Empty LLM response"}, "summary": "Thought resulted in empty response"})
+                    self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": "Empty LLM response"}, "summary": "Thought resulted in empty response"})
                     return NoAction(reason="LLM response was empty.")
 
         except Exception as e:
             # Catch errors during the call_ollama itself or unexpected issues
             logger.exception(f"Agent {self.agent_id} ({self.color}) encountered an unexpected error during think cycle: {e}")
-            self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "error": f"Outer think cycle exception: {e}"}, "summary": "Think cycle failed unexpectedly"})
+            # Note: response_obj might not be defined if error happened before call_ollama
+            response_data_for_log = str(response_obj) if 'response_obj' in locals() else "LLM call not completed"
+            self.update_memories({"type": "thought_error", "content": {"prompt": prompt, "response": response_data_for_log, "error": f"Outer think cycle exception: {e}"}, "summary": "Think cycle failed unexpectedly"})
             return NoAction(reason=f"Exception during think cycle: {e}")
 
 

@@ -2,9 +2,10 @@
 
 import logging
 import json
-from typing import Callable, Optional, Any, Dict, List # Import List
+from typing import Callable, Optional, Any, Dict, List
 import ollama
-import dataclasses # Import dataclasses for fallback JSON
+import dataclasses
+from ollama import Message # Import the Message class
 
 logger = logging.getLogger(__name__)
 
@@ -25,11 +26,22 @@ def call_ollama(
     prompt: str,
     tools: Optional[List[Dict[str, Any]]] = None, # Add tools parameter
     stream_callback: StreamCallback = None,
-    request_json_format: bool = False # Default to False now, tool usage implies structured output
-) -> Dict[str, Any]:
+    request_json_format: bool = False
+) -> Message | Dict[str, Any]: # Return type can be Message object or error Dict
     """
     Calls the Ollama API with the given model, prompt, and optional tools.
-    Supports streaming callbacks.
+
+    Args:
+        model_identifier: The name of the Ollama model to use.
+        prompt: The input prompt for the model.
+        tools: An optional list of tool definitions for the model to use.
+        stream_callback: An optional function to call with each response chunk during streaming.
+        request_json_format: If True (and no tools provided), requests JSON format.
+                           Generally False when using tools, as the structure comes from tool calls.
+
+    Returns:
+        The response Message object from the Ollama API on success.
+        A dictionary representing a NoAction with an error reason on failure.
 
     Args:
         model_identifier: The name of the Ollama model to use.
@@ -75,23 +87,20 @@ def call_ollama(
         logger.debug(f"Ollama raw response type: {type(response)}")
         logger.debug(f"Ollama raw response content: {response}")
 
-        # Check if the response structure is as expected
-        is_dict = isinstance(response, dict)
-        has_message = 'message' in response if is_dict else False
-        logger.debug(f"Response check: is_dict={is_dict}, has_message={has_message}")
-
-        if is_dict and has_message:
-             message_content = response['message']
-             # Log tool calls if present
-             if message_content.get('tool_calls'):
-                 logger.info(f"Ollama response contains tool calls: {message_content['tool_calls']}")
-             elif message_content.get('content'):
-                 logger.info(f"Ollama response contains content: {message_content['content'][:150]}...")
-             else:
-                  logger.warning("Ollama response message has neither content nor tool_calls.")
-             return response['message'] # Return the inner message dictionary
+        # Check if the response structure contains the 'message' key and it's a Message object
+        if isinstance(response, dict) and 'message' in response and isinstance(response['message'], Message):
+            message_obj: Message = response['message']
+            # Log tool calls or content if present
+            if message_obj.tool_calls:
+                logger.info(f"Ollama response contains tool calls: {message_obj.tool_calls}")
+            elif message_obj.content:
+                logger.info(f"Ollama response contains content: {message_obj.content[:150]}...")
+            else:
+                logger.warning("Ollama response Message object has neither content nor tool_calls.")
+            return message_obj # Return the Message object directly
         else:
-            logger.error(f"Unexpected response structure from Ollama: {response}")
+            logger.error(f"Unexpected response structure or type from Ollama: {response}")
+            # Still return an ErrorAction dictionary on failure
             return ErrorAction(reason=f"Unexpected response structure from Ollama: {response}").to_dict()
 
 
