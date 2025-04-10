@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .environment import Environment # Import for type hinting only
+    from .actions import Action # Import Action for type hinting
 
 class Agent:
     """Represents an individual agent in the simulation."""
