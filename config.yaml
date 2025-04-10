@@ -6,7 +6,7 @@ initial_agents: 15
 # Check https://ollama.com/search?c=tools for updated list.
 # Using models that don't support tools will likely result in errors or NoAction.
 model_tiers:
-  - llama3.1:latest # Known compatible model
+  - mistral-small3.1 # Known compatible model
   # - mistral-nemo:latest # Another option
   # - gemma3:27b # Likely NOT compatible with tool calling
   # - phi4:latest # Likely NOT compatible with tool calling
