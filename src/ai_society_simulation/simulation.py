@@ -10,12 +10,11 @@ from .environment import Environment
 
 logger = logging.getLogger(__name__)
 
-# Define a list of colors for agents (copied from previous implementation)
+# Define a list of simpler colors for agents for better compatibility
 AGENT_COLORS = [
-    "bright_blue", "bright_green", "bright_red", "bright_magenta",
-    "bright_yellow", "bright_cyan", "green", "red", "blue", "magenta",
-    "yellow", "cyan", "dark_orange", "spring_green1", "deep_pink1",
-    "dodger_blue1"
+    "blue", "green", "red", "magenta", "yellow", "cyan",
+    "purple", "orange", "pink", "lime", "teal", "navy"
+    # Add more basic colors if needed
 ]
 
 class Simulation:
