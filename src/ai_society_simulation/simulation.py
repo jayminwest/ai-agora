@@ -194,10 +194,11 @@ class Simulation:
                 logger.exception(f"Error processing agent {agent.agent_id} during tick {self.tick_count}: {e}")
                 # Decide how to handle agent errors - skip agent? halt simulation?
 
-        logger.info(f"--- Ending Tick {self.tick_count} ---")
+        # --- Environment Updates (End of Tick Actions) ---
+        self.environment.consume_agent_upkeep(len(self.agents)) # Consume upkeep after actions
+        closed_proposals_this_tick = self._process_proposals() # Process proposals after actions
 
-        # --- Proposal Management ---
-        closed_proposals_this_tick = self._process_proposals() # Get proposals closed this tick
+        logger.info(f"--- Ending Tick {self.tick_count} ---")
 
         # --- Tick Summarization ---
         if self.config.get('enable_tick_summary', False):
@@ -232,6 +233,9 @@ class Simulation:
         proposals_created_this_tick = [
             prop for prop in self.environment.proposals if prop.get('timestamp_proposed', '') >= tick_start_iso
         ]
+        # Gather resource changes (simplistic: just show current levels)
+        # TODO: Could track deltas for a more informative summary
+        current_resources = self.environment.resources
 
         # 2. Format context for the prompt
         message_summary_lines = []
@@ -247,6 +251,12 @@ class Simulation:
                 knowledge_summary_lines.append(f"- {item['source_agent_id']} added: {item['content'][:80]}...")
         else:
             knowledge_summary_lines.append("- None")
+
+        resource_summary_lines = []
+        if current_resources:
+             resource_summary_lines.append("- Current Levels: " + ", ".join(f"{k}={v:.1f}" for k, v in current_resources.items()))
+        else:
+             resource_summary_lines.append("- None")
 
         proposals_created_lines = []
         if proposals_created_this_tick:
@@ -268,6 +278,7 @@ class Simulation:
                 tick_number=self.tick_count,
                 messages_summary="\n".join(message_summary_lines),
                 knowledge_summary="\n".join(knowledge_summary_lines),
+                resource_summary="\n".join(resource_summary_lines), # Add resource summary
                 proposals_created_summary="\n".join(proposals_created_lines),
                 proposals_closed_summary="\n".join(proposals_closed_lines)
             )
@@ -328,8 +339,14 @@ class Simulation:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Simulation':
         """Deserializes a simulation state from a dictionary."""
-        config = data["config"]
-        # Initialize simulation, which loads config and prompts automatically
+        # Use the config stored *within the save file*
+        config = data.get("config")
+        if not config:
+             # Fallback or error if config is missing in save file
+             logger.error("Save file is missing the 'config' section. Cannot load simulation.")
+             raise ValueError("Save file is missing the 'config' section.")
+
+        # Initialize simulation using the loaded config
         simulation = cls(config)
         simulation.tick_count = data.get("tick_count", 0)
         simulation.last_tick_summary = data.get("last_tick_summary")
@@ -350,6 +367,7 @@ class Simulation:
                 # Decide how to handle: skip agent? stop loading?
 
         # Load environment state, passing the KB path determined from config
+        # Environment.from_dict now handles loading resource state and config
         simulation.environment = Environment.from_dict(
             data.get("environment", {}),
             knowledge_base_file_path=simulation.knowledge_base_file_path # Pass the path

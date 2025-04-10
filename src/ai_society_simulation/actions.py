@@ -95,9 +95,24 @@ class VoteAction(Action):
 # Helper to generate basic property schema from dataclass fields
 def _get_properties_from_dataclass(dc: Type[Action]) -> Dict[str, Any]:
     properties = {}
+    # Define known resource types here dynamically if possible, or hardcode for now
+    # This is tricky as the action definition doesn't know the config.
+    # For now, we'll make resource_type a generic string and rely on the prompt.
+    # A better approach might involve passing config to this function or using Literal dynamically.
+    known_resource_types = ["Energy", "Materials"] # Example, ideally get from config
+
     for field in fields(dc):
         field_type = field.type
         description = f"Parameter '{field.name}' for {dc.__name__}" # Basic description
+
+        # Special handling for GatherResourceAction.resource_type
+        if dc is GatherResourceAction and field.name == 'resource_type':
+             properties[field.name] = {
+                 "type": "string",
+                 "description": f"The type of resource to gather. Choose from available types like {', '.join(known_resource_types)}.",
+                 "enum": known_resource_types # Provide enum if possible
+             }
+             continue # Skip generic handling below
         # Basic type mapping (can be expanded)
         if field_type == str:
             properties[field.name] = {"type": "string", "description": description}
