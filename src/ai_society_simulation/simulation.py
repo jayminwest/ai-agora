@@ -100,10 +100,10 @@ class Simulation:
 
     def _initialize_agents_and_seed_message(self) -> None:
         """Creates agents and adds the initial system message."""
-        logger.info("Initializing agents and seeding message...")
+        logger.info("Initializing agents, determining personality/role, and seeding message...")
         num_agents = self.config.get('initial_agents', 3) # Use the actual default from config.yaml
         model_tiers = self.config.get('model_tiers', ['phi3:mini']) # Default model
-        directives_pool = self.config.get('agent_directives_pool', ["Be productive."])
+        directives_pool = self.config.get('agent_directives_pool', ["Be productive."]) # Default model
 
         if not model_tiers:
             raise ValueError("Configuration must define at least one model in 'model_tiers'.")
@@ -157,6 +157,9 @@ class Simulation:
         agent_order = random.sample(self.agents, len(self.agents))
         logger.debug(f"Agent processing order: {[a.agent_id for a in agent_order]}")
 
+        # Get current agent IDs *before* processing agents for this tick
+        current_agent_ids = [a.agent_id for a in self.agents]
+
         for agent in agent_order:
             try:
                 logger.debug(f"Processing agent {agent.agent_id} for tick {self.tick_count}")
@@ -166,10 +169,11 @@ class Simulation:
 
                 # 1. Perceive
                 current_environment_state = self.environment.get_state()
-                # Add simulation tick info to the state passed to the agent
+                # Add simulation tick info AND current agent IDs to the state passed to the agent
                 current_environment_state['current_tick'] = self.tick_count
                 current_environment_state['is_forced_vote_tick'] = is_forced_vote_tick
                 current_environment_state['forced_vote_interval'] = forced_vote_interval # Pass interval for calculating next
+                current_environment_state['agent_ids'] = current_agent_ids # Add list of agent IDs
                 agent.perceive(current_environment_state)
 
                 # 2. Think & 3. Act (Combined in Agent.act method)
@@ -182,11 +186,16 @@ class Simulation:
                     # Agent.act now internally manages the is_generating flag during its execution
                     # but we set it before and clear it after here to ensure UI updates correctly
                     # around the entire agent turn.
+                    # Agent.act might change agent.agent_id internally
                     agent.act(self.environment) # Agent handles its own thinking and action execution
                 finally:
                     agent.is_generating = False # Ensure flag is cleared *after* act completes
                     if update_ui_callback:
                         update_ui_callback() # Update UI to show agent finished thinking
+
+                # Note: If an agent changes its ID mid-tick, the 'current_agent_ids' list
+                # passed to subsequent agents in the *same tick* will still contain the *old* ID.
+                # The change fully propagates in the *next* tick's perception phase. This is generally acceptable.
 
                 # 4. Update Memories (Handled within Agent methods now)
 

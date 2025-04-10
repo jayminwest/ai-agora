@@ -89,6 +89,11 @@ class VoteAction(Action):
     proposal_id: str
     vote: Literal["yes", "no", "abstain"]
 
+# --- Role Change Action ---
+@dataclass
+class ChangeRoleAction(Action):
+    """Represents the agent changing its own displayed name/role."""
+    new_role: str # The desired new agent ID/name
 
 # --- Tool Definitions for Ollama ---
 
@@ -260,6 +265,18 @@ TOOLS_SCHEMA = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "ChangeRoleAction",
+            "description": "Change your own displayed name/role to something more descriptive or fitting for your current purpose or identity. Choose a unique name not already used by other agents.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(ChangeRoleAction),
+                "required": _get_required_fields(ChangeRoleAction),
+            },
+        },
+    },
 ]
 
 def get_tool_definitions() -> List[Dict[str, Any]]:
@@ -275,7 +292,8 @@ _ACTION_CLASSES = {
         SendMessageAction,
         PublishKnowledgeAction,
         QueryKnowledgeAction,
-        GatherResourceAction, # Add new action
+        GatherResourceAction,
+        ChangeRoleAction, # Add new action
         ProposeAction,
         VoteAction,
     ]
@@ -320,4 +338,4 @@ if __name__ == '__main__':
         print(f"An error occurred during deserialization test: {e}")
 
 
-logger.info("Actions module loaded with core actions, proposal, voting, and resource actions.")
+logger.info("Actions module loaded with core actions, proposal, voting, resource, and role change actions.")

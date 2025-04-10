@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Deque, TYPE_CHECKING, Optional
 from collections import deque
 import json # Ensure json is imported
 from datetime import datetime, timezone # Import datetime and timezone
+import re # Import re for cleaning role names
 from ollama import Message # Import the Message class
 
 # Configure logging
@@ -15,29 +16,13 @@ if TYPE_CHECKING:
     from .actions import Action # Import Action
 
 # Import the function directly for runtime use
-from .actions import get_tool_definitions
-
-# --- Action List for Prompt (REMOVED - Now using tool definitions) ---
-# _ACTION_LIST_PROMPT_SECTION = """
-# 1. Discuss / Converse:
-#    {{"_action_type": "SendMessageAction", "content": "Your conversational message here."}}
-#
-# 2. Propose Change (Requires Discussion First!):
-#    - General Proposal: {{"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}}
-#    - Add Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}}
-#    - Modify Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_modify", "description": "Reason for modifying this knowledge.", "target_knowledge_id": "kb_xxxxxx", "new_content": "The updated knowledge content."}}
-#    - Delete Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_delete", "description": "Reason for deleting this knowledge.", "target_knowledge_id": "kb_xxxxxx"}}
-#
-# 3. Vote on Active Proposal:
-#    {{"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"}} # Or "no", "abstain"
-#
-# 4. Query Knowledge Base:
-#    {{"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}}
-#
-# 5. Record Agreed Fact (Use *after* proposal passes or for simple, undisputed facts):
-#    {{"_action_type": "PublishKnowledgeAction", "content": "Factual statement or summary of passed proposal."}}
-#
-# # Removed the large _ACTION_LIST_PROMPT_SECTION
+from .actions import get_tool_definitions, _get_action_class # Import class getter
+# Import specific actions needed for act method
+from .actions import (
+    Action, NoAction, SendMessageAction, PublishKnowledgeAction,
+    QueryKnowledgeAction, ProposeAction, VoteAction, GatherResourceAction,
+    ChangeRoleAction # Import new action
+)
 
 
 class Agent:
@@ -64,6 +49,7 @@ class Agent:
         self.knowledge_query_result: Optional[List[Dict[str, Any]]] = None # Result from last KB query
         self.personality_and_motives: str = "Not yet determined." # Initialize personality attribute
         self.is_generating: bool = False # Flag to indicate if the agent is currently thinking/calling LLM
+        self.last_known_agent_ids: List[str] = [] # To store agent IDs from perception
         # self.long_term_memory: List[str] = [] # Placeholder for future LTM/Summaries
         logger.info(f"Agent {self.agent_id} ({self.color}) initialized with model {self.model_identifier}.")
 
@@ -148,6 +134,101 @@ class Agent:
                 "summary": "Failed to determine personality (processing error)."
             })
 
+    # --- NEW METHOD ---
+    def determine_role(self, existing_agent_ids: List[str]) -> None:
+        """
+        Uses the LLM during initialization (Tick 0) to define its role/name.
+        Updates self.agent_id if successful and unique.
+
+        Args:
+            existing_agent_ids: List of IDs already assigned to other agents during init.
+        """
+        logger.info(f"Agent {self.agent_id} ({self.color}) determining role...")
+        from .llm_interface import call_ollama
+
+        prompt_template = self.prompts.get('agent_role_determination')
+        if not prompt_template:
+            logger.error(f"Agent {self.agent_id} ({self.color}) cannot determine role: 'agent_role_determination' prompt template missing.")
+            # Keep original ID if prompt fails
+            self.update_memories({
+                "type": "role_determination_error",
+                "content": {"error": "Prompt template missing"},
+                "summary": "Failed to determine role (prompt missing)."
+            })
+            return
+
+        # Format the prompt
+        prompt = prompt_template.format(
+            agent_id=self.agent_id,
+            color=self.color,
+            directives_list=", ".join(self.directives),
+            personality=self.personality_and_motives # Use determined personality
+        )
+        logger.debug(f"Agent {self.agent_id} role determination prompt:\n{prompt}")
+
+        try:
+            response_obj = call_ollama(
+                self.model_identifier,
+                prompt,
+                request_json_format=False # Request plain text for the role name
+            )
+
+            new_role = None
+            error_reason = "Unknown error" # Default error reason
+            if isinstance(response_obj, Message) and isinstance(response_obj.content, str):
+                # Clean up response: remove quotes, extra spaces, ensure basic validity
+                role_text = response_obj.content.strip().strip('"').strip("'").strip()
+                # Basic sanitization: allow letters, numbers, hyphens, limit length
+                role_text = re.sub(r'[^\w-]', '', role_text) # Remove invalid chars
+                role_text = role_text[:30] # Limit length
+
+                if role_text:
+                    new_role = role_text
+                else:
+                    logger.warning(f"Agent {self.agent_id} proposed an empty or invalid role name after cleaning: '{response_obj.content}'. Keeping original ID.")
+                    error_reason = "Invalid role name proposed"
+            elif isinstance(response_obj, dict):
+                error_reason = response_obj.get('reason', 'Unknown LLM error')
+                logger.error(f"Agent {self.agent_id} failed role determination. LLM Error: {error_reason}")
+            else:
+                error_reason = "Unexpected LLM response type"
+                logger.error(f"Agent {self.agent_id} failed role determination. Error: {error_reason}")
+
+            if new_role:
+                # Check for uniqueness (case-insensitive) against *already assigned* IDs
+                if new_role.lower() in [aid.lower() for aid in existing_agent_ids]:
+                    logger.warning(f"Agent {self.agent_id} proposed role '{new_role}' which is already taken. Keeping original ID.")
+                    self.update_memories({
+                        "type": "role_determination_error",
+                        "content": {"prompt": prompt, "response": response_obj, "proposed_role": new_role, "error": "Role name conflict"},
+                        "summary": f"Proposed role '{new_role}' conflicted. Kept '{self.agent_id}'."
+                    })
+                else:
+                    old_id = self.agent_id
+                    self.agent_id = new_role # Update the agent's ID
+                    logger.info(f"Agent {old_id} ({self.color}) determined role and changed ID to: {self.agent_id}")
+                    self.update_memories({
+                        "type": "role_set",
+                        "content": {"prompt": prompt, "response": response_obj, "old_id": old_id, "new_id": self.agent_id},
+                        "summary": f"Role determined. ID changed from '{old_id}' to '{self.agent_id}'."
+                    })
+            else:
+                # Log failure if new_role wasn't set
+                 self.update_memories({
+                    "type": "role_determination_error",
+                    "content": {"prompt": prompt, "response": response_obj, "error": error_reason},
+                    "summary": f"Failed to determine role ({error_reason}). Kept '{self.agent_id}'."
+                })
+
+        except Exception as e:
+            logger.exception(f"Agent {self.agent_id} encountered an unexpected error during role determination: {e}")
+            # Keep original ID on error
+            self.update_memories({
+                "type": "role_determination_error",
+                "content": {"prompt": prompt, "error": str(e)},
+                "summary": f"Failed to determine role (exception). Kept '{self.agent_id}'."
+            })
+
     def perceive(self, environment_state: Dict[str, Any]) -> None:
         """
         Processes the current state of the environment.
@@ -157,6 +238,9 @@ class Agent:
         # Store perception in memory, including recent messages
         # Store perception in memory, including recent messages and knowledge
         # Clear previous query result before new perception
+
+        # Store the list of agent IDs from the state passed by Simulation
+        self.last_known_agent_ids = environment_state.get('agent_ids', [])
         self.knowledge_query_result = None
 
         num_msgs = len(environment_state.get('recent_messages', []))
@@ -166,19 +250,19 @@ class Agent:
         current_tick = environment_state.get('current_tick', -1)
         is_forced_vote = environment_state.get('is_forced_vote_tick', False)
 
-        perception_summary = f"Perceived environment at Tick {current_tick}: {num_msgs} msgs, {num_knowledge} knowledge, {num_proposals} proposals, {num_resources} resource types."
+        perception_summary = f"Perceived environment at Tick {current_tick}: {len(self.last_known_agent_ids)} agents, {num_msgs} msgs, {num_knowledge} knowledge, {num_proposals} proposals, {num_resources} resource types."
         if is_forced_vote:
             perception_summary += " (Forced Vote Tick)"
 
-        # Store the entire perceived state, including tick info and forced vote flag
+        # Store the entire perceived state, including agent IDs
         self.update_memories({
             "type": "perception",
-            "content": environment_state, # Contains tick info now
+            "content": environment_state, # Contains agent_ids now
             "summary": perception_summary
         })
         # Store active proposals separately for easier access in _build_prompt
         self._last_perceived_proposals = environment_state.get('active_proposals', [])
-        logger.debug(f"Agent {self.agent_id} ({self.color}): {perception_summary}")
+        logger.debug(f"Agent {self.agent_id} ({self.color}): {perception_summary}. Known IDs: {self.last_known_agent_ids}")
 
 
     def think(self) -> 'Action':
@@ -188,8 +272,6 @@ class Agent:
         """
         logger.debug(f"Agent {self.agent_id} ({self.color}) starting think cycle using tool calling.")
         from .llm_interface import call_ollama
-        # Import necessary actions and class getter, including SendMessageAction
-        from .actions import Action, NoAction, SendMessageAction, _get_action_class
 
         # Retrieve the prompt template
         prompt_template = self.prompts.get('agent_thinking') # Prompt now instructs to use tools
@@ -317,6 +399,8 @@ class Agent:
         context['agent_id'] = self.agent_id
         context['color'] = self.color
         context['directives_list'] = "\n".join(f"- {d}" for d in self.directives)
+        context['personality'] = self.personality_and_motives # Add personality
+        context['agent_ids_list'] = ", ".join(self.last_known_agent_ids) # Add current agent IDs
 
         # Retrieve active proposals stored during perceive()
         active_proposals = getattr(self, '_last_perceived_proposals', [])
@@ -496,9 +580,6 @@ class Agent:
         Execution logic for QueryKnowledgeAction is handled here to store results.
         """
         # 1. Decide action by thinking (inside try...finally to manage is_generating)
-        # Import necessary actions including GatherResourceAction
-        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction, ProposeAction, VoteAction, GatherResourceAction
-
         action: Action = NoAction(reason="Initialization before think") # Default action
         action_summary = "Action execution skipped due to error during think." # Default summary
 
@@ -546,6 +627,30 @@ class Agent:
                 success = environment.record_vote(self.agent_id, action.proposal_id, action.vote)
                 status = "recorded" if success else "failed"
                 action_summary = f"Vote '{action.vote}' on {action.proposal_id} {status}."
+            # --- NEW ACTION HANDLING ---
+            elif isinstance(action, ChangeRoleAction):
+                new_role_raw = action.new_role.strip()
+                # Basic sanitization (redundant with initial determination but good practice)
+                new_role = re.sub(r'[^\w-]', '', new_role_raw)
+                new_role = new_role[:30] # Limit length
+
+                if not new_role:
+                    action_summary = "Action failed: Proposed role name was empty or invalid after cleaning."
+                    logger.warning(f"Agent {self.agent_id} proposed invalid role name '{new_role_raw}'. Action failed.")
+                    action = NoAction(reason=action_summary) # Change action to NoAction for memory log
+                # Check uniqueness against last known agent IDs (case-insensitive)
+                elif new_role.lower() in [aid.lower() for aid in self.last_known_agent_ids if aid.lower() != self.agent_id.lower()]:
+                    action_summary = f"Action failed: Proposed role name '{new_role}' is already in use."
+                    logger.warning(f"Agent {self.agent_id} failed to change role to '{new_role}': Name conflict.")
+                    action = NoAction(reason=action_summary) # Change action to NoAction
+                else:
+                    old_id = self.agent_id
+                    self.agent_id = new_role # Update the agent's ID
+                    action_summary = f"Changed role from '{old_id}' to '{self.agent_id}'."
+                    logger.info(f"Agent {old_id} ({self.color}) {action_summary}")
+                    # Note: The change takes effect immediately for subsequent actions/UI updates in the *next* tick.
+                    # Other agents will perceive the new name in the next tick.
+            # --- END NEW ACTION HANDLING ---
             elif isinstance(action, NoAction):
                 reason = action.reason if action.reason else "No reason specified."
                 action_summary = f"NoAction. Reason: {reason}"
@@ -594,6 +699,7 @@ class Agent:
             "short_term_memory": list(self.short_term_memory),
             "personality_and_motives": self.personality_and_motives,
             "is_generating": self.is_generating,
+            # last_known_agent_ids is transient, derived from perception
             # knowledge_query_result is transient, not saved
             # prompts are not saved, they are loaded from file at simulation start
         }
@@ -635,4 +741,6 @@ class Agent:
         agent.knowledge_query_result = None
         # is_generating is transient and should always start as False when loaded
         agent.is_generating = False
+        # last_known_agent_ids is initialized empty
+        agent.last_known_agent_ids = []
         return agent
