@@ -321,6 +321,13 @@ class Agent:
         # Retrieve active proposals stored during perceive()
         active_proposals = getattr(self, '_last_perceived_proposals', [])
 
+        # Retrieve last perception memory content
+        last_perception_content = {}
+        for mem in reversed(self.short_term_memory):
+            if mem.get('type') == 'perception':
+                last_perception_content = mem.get('content', {})
+                break
+
         # 1. Knowledge Query Results
         query_lines = []
         if self.knowledge_query_result is not None:
@@ -443,15 +450,10 @@ class Agent:
         context['active_proposals_context'] = "\n".join(proposal_lines)
 
         # 7. Tick Info & Voting Context
+        # Retrieve these from the last_perception_content found earlier
         current_tick = last_perception_content.get('current_tick', -1)
         is_forced_vote_tick = last_perception_content.get('is_forced_vote_tick', False)
         forced_vote_interval = last_perception_content.get('forced_vote_interval', 0)
-        for mem in reversed(self.short_term_memory):
-            if mem.get('type') == 'perception':
-                current_tick = mem.get('content', {}).get('current_tick', -1)
-                is_forced_vote_tick = mem.get('content', {}).get('is_forced_vote_tick', False)
-                forced_vote_interval = mem.get('content', {}).get('forced_vote_interval', 0)
-                break
         context['current_tick'] = str(current_tick)
 
         voting_context_lines = []
@@ -494,7 +496,8 @@ class Agent:
         Execution logic for QueryKnowledgeAction is handled here to store results.
         """
         # 1. Decide action by thinking (inside try...finally to manage is_generating)
-        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction, ProposeAction, VoteAction # Import actions
+        # Import necessary actions including GatherResourceAction
+        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction, ProposeAction, VoteAction, GatherResourceAction
 
         action: Action = NoAction(reason="Initialization before think") # Default action
         action_summary = "Action execution skipped due to error during think." # Default summary
