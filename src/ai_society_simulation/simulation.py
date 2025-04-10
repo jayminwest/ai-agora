@@ -78,9 +78,6 @@ class Simulation:
             logger.warning("No agents in the simulation to run tick.")
             return
 
-        # Get environment state once for all agents this tick
-        environment_state = self.environment.get_state()
-
         # Agent processing loop
         # Randomize agent order each tick
         agent_order = random.sample(self.agents, len(self.agents))
@@ -89,11 +86,13 @@ class Simulation:
         for agent in agent_order:
             try:
                 logger.debug(f"Processing agent {agent.agent_id} for tick {self.tick_count}")
-                # 1. Perceive
-                agent.perceive(environment_state)
+                # 1. Perceive (Get the *latest* state just before perceiving)
+                current_environment_state = self.environment.get_state()
+                agent.perceive(current_environment_state)
 
                 # 2. Think & 3. Act (Combined in Agent.act method)
                 # The agent's act method now includes the think call and action execution
+                # It uses the perception stored in the previous step.
                 agent.act(self.environment) # Agent handles its own thinking and action execution
 
                 # 4. Update Memories (Handled within Agent methods)
