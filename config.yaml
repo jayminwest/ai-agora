@@ -1,5 +1,5 @@
 simulation_name: mvp_test
-initial_agents: 3
+initial_agents: 4
 model_tiers:
   - mistral:7b-instruct # Example: A slightly larger model
   - phi3:mini           # Example: A smaller, faster model
