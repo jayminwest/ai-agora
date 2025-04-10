@@ -5,6 +5,7 @@ model_tiers:
   - phi3:mini
 # Add other keys with placeholder values or comments if needed for structure
 agent_directives_pool: ["Be confrontational"]
+initial_system_message: "Welcome, agents. Let's discuss the best way to collaborate effectively." # Configurable system prompt
 influence_rules: {} # Placeholder
 upgrade_mechanism: voting # Placeholder
 upgrade_threshold: 100 # Placeholder

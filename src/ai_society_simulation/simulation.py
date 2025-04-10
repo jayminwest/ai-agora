@@ -63,11 +63,11 @@ class Simulation:
 
         # Environment is already initialized in __init__
 
-        # *** ADD A SEED MESSAGE ***
-        if not self.environment.message_log: # Only add if the log is empty (e.g., not loading from save)
-            initial_topic = "Let's discuss the best way to collaborate effectively."
-            self.environment.add_message("System", f"Welcome, agents. {initial_topic}")
-            logger.info(f"Added initial system message to seed conversation: '{initial_topic}'")
+        # *** ADD A SEED MESSAGE from config ***
+        initial_message = self.config.get('initial_system_message')
+        if initial_message and not self.environment.message_log: # Only add if defined and log is empty
+            self.environment.add_message("System", initial_message)
+            logger.info(f"Added initial system message from config: '{initial_message[:100]}...'")
 
     def run_tick(self) -> None:
         """Executes a single time step (tick) of the simulation."""
