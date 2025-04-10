@@ -198,7 +198,6 @@ class SimulationUI:
             personality_texts.append(Text.from_markup(f"[{color}]{agent_id}[/]: {personality}"))
 
         # Combine table and personality text using Group or just appending to Panel content
-        from rich.console import Group # Import Group
         panel_content = Group(
             table,
             Text("\n--- Agent Personalities ---", style="bold underline"),
