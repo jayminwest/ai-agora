@@ -21,7 +21,7 @@ from rich.live import Live
 # --- Configuration ---
 CONFIG_PATH = os.path.join(project_root, 'config.yaml')
 DEFAULT_SAVE_DIR = os.path.join(project_root, 'data', 'simulations')
-MAX_TICKS = 5 # Number of ticks to run for this MVP test
+# MAX_TICKS removed for interactive mode
 
 # --- Logging Setup ---
 def setup_logging(log_level_str: str = "INFO", log_file: str = "simulation.log"):
@@ -108,29 +108,44 @@ if __name__ == "__main__":
     # 5. Initialize UI
     ui = SimulationUI()
 
-    # 6. Run Simulation Ticks with Live Display
+    # 6. Run Simulation Interactively with Live Display
     try:
-        start_tick = simulation.tick_count + 1
-        end_tick = start_tick + MAX_TICKS
-        logger.info(f"Running simulation from tick {start_tick} to {end_tick - 1}...")
+        logger.info("Starting interactive simulation. Press Enter to advance tick, 'q' then Enter to quit.")
+        # Use screen=True to clear screen on exit, transient=False to keep final state visible
+        with Live(ui.display_tick(simulation.to_dict()), refresh_per_second=10, screen=True, transient=False) as live:
+            while True:
+                live.update(ui.display_tick(simulation.to_dict())) # Update display first
 
-        with Live(ui.display_tick(simulation.to_dict()), refresh_per_second=4, screen=True, transient=True) as live:
-            for tick in range(start_tick, end_tick):
-                simulation.run_tick()
-                live.update(ui.display_tick(simulation.to_dict()))
+                # Wait for user input to proceed
+                try:
+                    user_input = input() # Blocks here until Enter is pressed
+                except EOFError: # Handle Ctrl+D or similar EOF signals gracefully
+                    logger.warning("EOF detected, exiting simulation.")
+                    break
 
-                # Optional: Add delay if needed (Live manages refresh, but sim logic might need delay)
-                time.sleep(config.get('tick_delay_ms', 100) / 1000.0)
+                if user_input.strip().lower() == 'q':
+                    logger.info("Quit command received. Exiting simulation loop.")
+                    break
+                elif user_input.strip() == "": # Check for Enter key (empty input)
+                    logger.info(f"Advancing to tick {simulation.tick_count + 1}...")
+                    simulation.run_tick()
 
-                # Optional: Periodic saving (using config setting)
-                save_interval = config.get('save_interval_ticks', 10)
-                if save_interval > 0 and simulation.tick_count % save_interval == 0:
-                     logger.info(f"Periodic save triggered at tick {simulation.tick_count}.")
-                     save_state(simulation.to_dict(), save_filename)
+                    # Optional: Periodic saving (using config setting)
+                    save_interval = config.get('save_interval_ticks', 10)
+                    if save_interval > 0 and simulation.tick_count % save_interval == 0:
+                         logger.info(f"Periodic save triggered at tick {simulation.tick_count}.")
+                         save_state(simulation.to_dict(), save_filename)
+                else:
+                    # Optional: Could add more commands here later
+                    logger.info(f"Unknown command: '{user_input}'. Press Enter to advance, 'q' to quit.")
+                    # Update the display again to show the message if needed, or just loop
+                    live.update(ui.display_tick(simulation.to_dict()))
 
-        logger.info(f"Simulation finished after {MAX_TICKS} ticks.")
+
+        logger.info(f"Interactive simulation ended at tick {simulation.tick_count}.")
     except KeyboardInterrupt:
         logger.warning("Simulation run interrupted by user (KeyboardInterrupt).")
+        # The Live display context manager handles cleanup
     except Exception as e:
         logger.exception(f"An unexpected error occurred during simulation run: {e}") # Use exc_info=True
         # Optionally save state on unexpected error

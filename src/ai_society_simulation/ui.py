@@ -77,7 +77,7 @@ class SimulationUI:
         self.layout["agent_inspector"].update(self._create_agent_panel(simulation_state))
         self.layout["message_log"].update(self._create_message_log_panel(simulation_state))
         self.layout["knowledge_base"].update(Panel("[Placeholder]", title="Knowledge Base")) # Placeholder
-        self.layout["footer"].update(Text("Status: Running...", style="dim"))
+        self.layout["footer"].update(Text("Press Enter to advance tick, 'q' then Enter to quit.", style="dim"))
         return self.layout
 
     def display_summary(self, simulation_state: dict):
