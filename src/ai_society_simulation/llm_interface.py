@@ -83,7 +83,17 @@ def call_ollama(
                 logger.warning("Ollama response Message object has neither content nor tool_calls.")
             return message_obj # Return the Message object directly
         else:
-            logger.error(f"Unexpected response structure or type from Ollama: {response}")
+            # Log details about why the check failed
+            if not isinstance(response, dict):
+                logger.error(f"Ollama response is not a dictionary. Type: {type(response)}, Content: {response}")
+            elif 'message' not in response:
+                logger.error(f"Ollama response dictionary is missing 'message' key. Content: {response}")
+            elif not isinstance(response['message'], Message):
+                # Log the specific type mismatch
+                logger.error(f"Value for 'message' key is not a Message object. Type: {type(response['message'])}, Content: {response['message']}")
+            else: # Should not be reachable if the main 'if' failed, but include for completeness
+                 logger.error(f"Unknown reason for failing response structure check. Response: {response}")
+
             # Still return an ErrorAction dictionary on failure
             return ErrorAction(reason=f"Unexpected response structure from Ollama: {response}").to_dict()
 
