@@ -17,23 +17,23 @@ if TYPE_CHECKING:
 # _ACTION_LIST_PROMPT_SECTION = """
 # 1. Discuss / Converse:
 #    {{"_action_type": "SendMessageAction", "content": "Your conversational message here."}}
-
-2. Propose Change (Requires Discussion First!):
-   - General Proposal: {{"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}}
-   - Add Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}}
-   - Modify Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_modify", "description": "Reason for modifying this knowledge.", "target_knowledge_id": "kb_xxxxxx", "new_content": "The updated knowledge content."}}
-   - Delete Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_delete", "description": "Reason for deleting this knowledge.", "target_knowledge_id": "kb_xxxxxx"}}
-
-3. Vote on Active Proposal:
-   {{"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"}} # Or "no", "abstain"
-
-4. Query Knowledge Base:
-   {{"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}}
-
-5. Record Agreed Fact (Use *after* proposal passes or for simple, undisputed facts):
-   {{"_action_type": "PublishKnowledgeAction", "content": "Factual statement or summary of passed proposal."}}
-
-# Removed the large _ACTION_LIST_PROMPT_SECTION
+#
+# 2. Propose Change (Requires Discussion First!):
+#    - General Proposal: {{"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}}
+#    - Add Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}}
+#    - Modify Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_modify", "description": "Reason for modifying this knowledge.", "target_knowledge_id": "kb_xxxxxx", "new_content": "The updated knowledge content."}}
+#    - Delete Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_delete", "description": "Reason for deleting this knowledge.", "target_knowledge_id": "kb_xxxxxx"}}
+#
+# 3. Vote on Active Proposal:
+#    {{"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"}} # Or "no", "abstain"
+#
+# 4. Query Knowledge Base:
+#    {{"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}}
+#
+# 5. Record Agreed Fact (Use *after* proposal passes or for simple, undisputed facts):
+#    {{"_action_type": "PublishKnowledgeAction", "content": "Factual statement or summary of passed proposal."}}
+#
+# # Removed the large _ACTION_LIST_PROMPT_SECTION
 
 
 class Agent:
