@@ -1,7 +1,7 @@
 simulation_name: mvp_test
-initial_agents: 1
+initial_agents: 2
 model_tiers:
-  - phi3:mini
+  - mistral:7b-instruct # Changed from phi3:mini
 # Add other keys with placeholder values or comments if needed for structure
 agent_directives_pool: ["Seek understanding."]
 influence_rules: {} # Placeholder
