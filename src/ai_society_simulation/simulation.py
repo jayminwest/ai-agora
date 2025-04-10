@@ -39,15 +39,21 @@ class Simulation:
         self.config = config
         self.tick_count = 0
         self.agents: List[Agent] = []
-        self.environment: Environment = Environment()
+        # Add this line to store the path
+        self.knowledge_base_file_path: Optional[str] = None
         self.last_tick_summary: Optional[str] = None
         self.prompts: Dict[str, str] = {} # To store loaded prompts
 
-        # Load prompts first
         self._load_prompts()
 
-        # Load initial knowledge base *before* creating agents or adding system message
-        self._load_initial_knowledge_base()
+        # Determine KB path *before* initializing Environment
+        self._determine_kb_path() # New helper function call
+
+        # Pass the path to Environment constructor
+        self.environment: Environment = Environment(knowledge_base_file_path=self.knowledge_base_file_path)
+
+        # Load initial knowledge base *using the Environment's method*
+        self.environment.load_initial_knowledge() # Environment now handles loading
 
         self._initialize_agents_and_seed_message() # Separate agent creation
         logger.info(f"Simulation '{config.get('simulation_name', 'Unnamed')}' initialized.")
@@ -71,49 +77,19 @@ class Simulation:
             # Depending on desired behavior, could exit or raise a more specific exception
             raise RuntimeError(f"Failed to load prompts: {e}") from e
 
-    def _load_initial_knowledge_base(self) -> None:
-        """Loads initial knowledge items from a file specified in the config."""
+    # Add this new private method
+    def _determine_kb_path(self) -> None:
+        """Determines and stores the absolute path to the initial KB file."""
         kb_file_path_rel = self.config.get('initial_knowledge_base_file')
-        if not kb_file_path_rel:
-            logger.info("No initial knowledge base file specified in config. Skipping.")
-            return
+        if kb_file_path_rel:
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            self.knowledge_base_file_path = os.path.join(project_root, kb_file_path_rel)
+            logger.debug(f"Determined knowledge base file path: {self.knowledge_base_file_path}")
+        else:
+            self.knowledge_base_file_path = None
+            logger.debug("No initial knowledge base file specified in config.")
 
-        # Assume the path is relative to the project root (where config.yaml is)
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))) # Go up 3 levels from simulation.py
-        kb_file_path_abs = os.path.join(project_root, kb_file_path_rel)
-
-        logger.info(f"Attempting to load initial knowledge base from: {kb_file_path_abs}")
-        try:
-            with open(kb_file_path_abs, 'r', encoding='utf-8') as f:
-                initial_knowledge = json.load(f)
-
-            if not isinstance(initial_knowledge, list):
-                logger.error(f"Initial knowledge base file '{kb_file_path_abs}' does not contain a JSON list. Skipping load.")
-                return
-
-            # Validate and add items (simple validation for now)
-            valid_items = []
-            for i, item in enumerate(initial_knowledge):
-                if isinstance(item, dict) and 'content' in item:
-                    # Add minimal required fields if missing (timestamp, source, id)
-                    item.setdefault('timestamp', datetime.now(timezone.utc).isoformat())
-                    item.setdefault('source_agent_id', 'SystemInitial')
-                    item.setdefault('id', f'initial_{i}')
-                    valid_items.append(item)
-                else:
-                    logger.warning(f"Skipping invalid item at index {i} in initial knowledge file: {item}")
-
-            # Prepend initial knowledge so it appears older than runtime additions
-            self.environment.shared_knowledge_base = valid_items + self.environment.shared_knowledge_base
-            logger.info(f"Successfully loaded and prepended {len(valid_items)} items from initial knowledge base file.")
-
-        except FileNotFoundError:
-            logger.error(f"Initial knowledge base file not found: {kb_file_path_abs}. Skipping load.")
-        except json.JSONDecodeError as e:
-            logger.error(f"Error decoding JSON from initial knowledge base file '{kb_file_path_abs}': {e}. Skipping load.")
-        except Exception as e:
-            logger.exception(f"An unexpected error occurred while loading initial knowledge base: {e}")
-
+    # REMOVED the entire _load_initial_knowledge_base method from Simulation
 
     def _initialize_agents_and_seed_message(self) -> None:
         """Creates agents and adds the initial system message."""
@@ -366,7 +342,11 @@ class Simulation:
                 logger.error(f"Failed to load agent from data: {agent_data}. Error: {e}", exc_info=True)
                 # Decide how to handle: skip agent? stop loading?
 
-        simulation.environment = Environment.from_dict(data.get("environment", {}))
+        # Load environment state, passing the KB path determined from config
+        simulation.environment = Environment.from_dict(
+            data.get("environment", {}),
+            knowledge_base_file_path=simulation.knowledge_base_file_path # Pass the path
+        )
 
         # Ensure agent count matches config (or handle discrepancy) - Optional check
         if len(simulation.agents) != config.get('initial_agents'):

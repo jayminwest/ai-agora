@@ -1,6 +1,8 @@
 """Defines the Environment class for the simulation."""
 
 import logging
+import json # Add json import
+import os # Add os import
 from typing import List, Dict, Any, Optional # Import Optional
 from datetime import datetime, timezone, timedelta # Import datetime, timezone, timedelta
 import uuid # Import uuid for unique knowledge IDs
@@ -11,12 +13,63 @@ PROPOSAL_TTL_SECONDS = 3600 # Default Time-To-Live for proposals (e.g., 1 hour i
 class Environment:
     """Represents the shared environment for the agents."""
 
-    def __init__(self):
+    def __init__(self, knowledge_base_file_path: Optional[str] = None): # Add argument with default
         """Initializes the environment."""
         self.message_log: List[Dict[str, Any]] = []
-        self.shared_knowledge_base: List[Dict[str, Any]] = [] # Add knowledge base
-        self.proposals: List[Dict[str, Any]] = [] # Add proposal list
-        logger.info("Environment initialized with message log, knowledge base, and proposal list.")
+        self.shared_knowledge_base: List[Dict[str, Any]] = [] # Initialize empty, load_initial_knowledge will populate
+        self.proposals: List[Dict[str, Any]] = []
+        self.knowledge_base_file_path: Optional[str] = knowledge_base_file_path # Store the path
+        logger.info("Environment initialized with message log, knowledge base, proposal list, and KB path.")
+        # Note: load_initial_knowledge() is called by Simulation after Environment is created
+
+    # Add this new method (logic moved from Simulation._load_initial_knowledge_base)
+    def load_initial_knowledge(self) -> None:
+        """Loads initial knowledge items from the file path stored during init."""
+        if not self.knowledge_base_file_path:
+            logger.info("No initial knowledge base file path provided. Skipping initial load.")
+            return
+
+        logger.info(f"Attempting to load initial knowledge base from: {self.knowledge_base_file_path}")
+        try:
+            # Check if file exists before opening
+            if not os.path.exists(self.knowledge_base_file_path):
+                 logger.error(f"Initial knowledge base file not found: {self.knowledge_base_file_path}. Skipping load.")
+                 return
+
+            with open(self.knowledge_base_file_path, 'r', encoding='utf-8') as f:
+                initial_knowledge = json.load(f)
+
+            if not isinstance(initial_knowledge, list):
+                logger.error(f"Initial knowledge base file '{self.knowledge_base_file_path}' does not contain a JSON list. Skipping load.")
+                return
+
+            # Validate and add items (simple validation for now)
+            valid_items = []
+            for i, item in enumerate(initial_knowledge):
+                if isinstance(item, dict) and 'content' in item:
+                    # Add minimal required fields if missing (timestamp, source, id)
+                    item.setdefault('timestamp', datetime.now(timezone.utc).isoformat())
+                    item.setdefault('source_agent_id', 'SystemInitial')
+                    item.setdefault('id', f'initial_{i}') # Ensure unique initial IDs
+                    valid_items.append(item)
+                else:
+                    logger.warning(f"Skipping invalid item at index {i} in initial knowledge file: {item}")
+
+            # Prepend initial knowledge so it appears older than runtime additions
+            # Ensure no duplicates if this method were called multiple times (though it shouldn't be)
+            existing_ids = {k.get('id') for k in self.shared_knowledge_base if k.get('id')}
+            new_items_to_add = [item for item in valid_items if item.get('id') not in existing_ids]
+
+            self.shared_knowledge_base = new_items_to_add + self.shared_knowledge_base
+            logger.info(f"Successfully loaded and prepended {len(new_items_to_add)} items from initial knowledge base file.")
+
+        except FileNotFoundError: # Should be caught by os.path.exists, but keep for safety
+            logger.error(f"Initial knowledge base file not found: {self.knowledge_base_file_path}. Skipping load.")
+        except json.JSONDecodeError as e:
+            logger.error(f"Error decoding JSON from initial knowledge base file '{self.knowledge_base_file_path}': {e}. Skipping load.")
+        except Exception as e:
+            logger.exception(f"An unexpected error occurred while loading initial knowledge base: {e}")
+
 
     def add_message(self, sender_id: str, content: str) -> None:
         """Adds a message to the environment's log with a timestamp."""
@@ -136,8 +189,20 @@ class Environment:
 
         try:
             if prop_type == 'knowledge_add':
+                # Add to in-memory list first
                 new_id = self.publish_knowledge(f"System (via Proposal {proposal['proposal_id']})", proposal['content'])
-                logger.info(f"Knowledge added via proposal {proposal['proposal_id']}, new ID: {new_id}")
+                logger.info(f"Knowledge added to memory via proposal {proposal['proposal_id']}, new ID: {new_id}")
+
+                # Find the newly added item to persist it
+                new_item = next((item for item in self.shared_knowledge_base if item.get('id') == new_id), None)
+                if new_item:
+                    self._persist_knowledge_item(new_item) # Call the new persistence method
+                else:
+                    logger.error(f"Could not find newly added knowledge item {new_id} in memory to persist.")
+                    # Decide if this should be an error state for the proposal?
+                    # proposal['status'] = 'error'
+                    # return False # Or just log the error and continue? Let's log for now.
+
                 proposal['status'] = 'executed'
                 return True
             elif prop_type == 'knowledge_modify':
@@ -192,6 +257,44 @@ class Environment:
             proposal['status'] = 'error' # Mark as error state
             return False
 
+    # Add this new private method for persistence
+    def _persist_knowledge_item(self, new_item: Dict[str, Any]) -> None:
+        """Appends a single knowledge item to the JSON file."""
+        if not self.knowledge_base_file_path:
+            logger.warning("Cannot persist knowledge item: knowledge_base_file_path is not set.")
+            return
+
+        logger.info(f"Persisting knowledge item {new_item.get('id')} to {self.knowledge_base_file_path}")
+        try:
+            # Read existing data
+            current_knowledge = []
+            if os.path.exists(self.knowledge_base_file_path):
+                with open(self.knowledge_base_file_path, 'r', encoding='utf-8') as f:
+                    try:
+                        content = f.read()
+                        if content.strip(): # Check if file is not empty
+                            current_knowledge = json.loads(content)
+                        if not isinstance(current_knowledge, list):
+                            logger.error(f"Knowledge base file {self.knowledge_base_file_path} does not contain a list. Cannot append. Overwriting with new item.")
+                            current_knowledge = [] # Reset if not a list
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Error decoding JSON from {self.knowledge_base_file_path}: {e}. Cannot append. Overwriting with new item.")
+                        current_knowledge = [] # Reset on decode error
+
+            # Append new item
+            current_knowledge.append(new_item)
+
+            # Write updated data back
+            with open(self.knowledge_base_file_path, 'w', encoding='utf-8') as f:
+                json.dump(current_knowledge, f, indent=2) # Use indent=2 for consistency
+            logger.info(f"Successfully appended knowledge item {new_item.get('id')} to file.")
+
+        except IOError as e:
+            logger.error(f"IOError persisting knowledge item to {self.knowledge_base_file_path}: {e}")
+        except Exception as e:
+            logger.exception(f"Unexpected error persisting knowledge item to {self.knowledge_base_file_path}: {e}")
+
+
     def get_recent_knowledge(self, count: int = 5) -> List[Dict[str, Any]]:
         """Returns the most recent knowledge items."""
         return self.shared_knowledge_base[-count:]
@@ -219,12 +322,15 @@ class Environment:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Environment':
+    def from_dict(cls, data: Dict[str, Any], knowledge_base_file_path: Optional[str] = None) -> 'Environment': # Add argument
         """Deserializes an environment's state from a dictionary."""
-        env = cls()
+        # Pass the path to the constructor when creating the instance
+        env = cls(knowledge_base_file_path=knowledge_base_file_path)
         # Timestamps are loaded directly as strings
         env.message_log = data.get("message_log", [])
-        env.shared_knowledge_base = data.get("shared_knowledge_base", [])
+        env.shared_knowledge_base = data.get("shared_knowledge_base", []) # Load in-memory state
         env.proposals = data.get("proposals", []) # Load proposals
         # Could add validation here if needed
+        # No need to call load_initial_knowledge here, as we are restoring the state *from the save file*,
+        # which already includes any initially loaded + subsequently added items.
         return env
