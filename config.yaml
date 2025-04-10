@@ -1,5 +1,5 @@
 simulation_name: mvp_test
-initial_agents: 15
+initial_agents: 10
 # --- Model Tiers ---
 # IMPORTANT: Models used MUST support Ollama's tool calling feature.
 # Examples: llama3.1, mistral-nemo, firefunction-v2, command-r-plus
@@ -22,7 +22,7 @@ agent_directives_pool:
   - "Focus on long-term societal stability and growth."
   - "Mediate conflicts and help find common ground for collective action."
   - "Ensure decisions are made transparently through discussion and voting."
-initial_system_message: "Welcome, builders. This space is yours to shape. Discuss, propose, and vote to create a thriving society. Your collective decisions will determine its future." # Configurable system prompt
+initial_system_message: "Welcome, builders. This space is yours to shape. Discuss, propose, and vote to create a thriving society. Your collective decisions will determine its future. Let's start by introducing ourselves." # Configurable system prompt
 initial_knowledge_base_file: data/knowledge-base.json # Optional: Path to a JSON file with initial knowledge items (relative to project root)
 influence_rules: {} # Placeholder
 upgrade_mechanism: voting # Placeholder
