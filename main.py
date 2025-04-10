@@ -15,6 +15,8 @@ if src_path not in sys.path:
 
 from ai_society_simulation.simulation import Simulation
 from ai_society_simulation.persistence import save_state, load_state
+from ai_society_simulation.ui import SimulationUI
+from rich.live import Live
 
 # --- Configuration ---
 CONFIG_PATH = os.path.join(project_root, 'config.yaml')
@@ -29,6 +31,8 @@ def setup_logging(log_level_str: str = "INFO"):
         level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
+        # Note: Rich Live display might interfere with console logging.
+        # Consider using Rich logging handler or logging to a file for complex scenarios.
     )
     # Example of setting a higher level for a noisy library
     # logging.getLogger("noisy_library").setLevel(logging.WARNING)
@@ -83,35 +87,45 @@ if __name__ == "__main__":
         logger.info("No saved state found or failed to load. Starting new simulation.")
         simulation = Simulation(config)
 
-    # 5. Run Simulation Ticks
+    # 5. Initialize UI
+    ui = SimulationUI()
+
+    # 6. Run Simulation Ticks with Live Display
     try:
         start_tick = simulation.tick_count + 1
         end_tick = start_tick + MAX_TICKS
         logger.info(f"Running simulation from tick {start_tick} to {end_tick - 1}...")
 
-        for tick in range(start_tick, end_tick):
-            simulation.run_tick()
-            # Optional: Add delay if needed
-            # time.sleep(config.get('tick_delay_ms', 100) / 1000.0)
+        with Live(ui.display_tick(simulation.to_dict()), refresh_per_second=4, screen=True, transient=True) as live:
+            for tick in range(start_tick, end_tick):
+                simulation.run_tick()
+                live.update(ui.display_tick(simulation.to_dict()))
 
-            # Optional: Periodic saving (using config setting)
-            save_interval = config.get('save_interval_ticks', 10)
-            if save_interval > 0 and simulation.tick_count % save_interval == 0:
-                 logger.info(f"Periodic save triggered at tick {simulation.tick_count}.")
-                 save_state(simulation.to_dict(), save_filename)
+                # Optional: Add delay if needed (Live manages refresh, but sim logic might need delay)
+                time.sleep(config.get('tick_delay_ms', 100) / 1000.0)
+
+                # Optional: Periodic saving (using config setting)
+                save_interval = config.get('save_interval_ticks', 10)
+                if save_interval > 0 and simulation.tick_count % save_interval == 0:
+                     logger.info(f"Periodic save triggered at tick {simulation.tick_count}.")
+                     save_state(simulation.to_dict(), save_filename)
 
         logger.info(f"Simulation finished after {MAX_TICKS} ticks.")
-
     except KeyboardInterrupt:
-        logger.warning("Simulation run interrupted by user.")
+        logger.warning("Simulation run interrupted by user (KeyboardInterrupt).")
     except Exception as e:
         logger.exception(f"An unexpected error occurred during simulation run: {e}") # Use exc_info=True
         # Optionally save state on unexpected error
         # save_state(simulation.to_dict(), save_filename + ".error")
 
 
-    # 6. Save Final State
-    logger.info("Saving final simulation state...")
-    save_state(simulation.to_dict(), save_filename)
+    # 7. Save Final State
+    try:
+        logger.info("Saving final simulation state...")
+        save_state(simulation.to_dict(), save_filename)
+    except Exception as e:
+        logger.exception(f"Failed to save final state: {e}")
 
     logger.info("--- AI Society Simulation MVP End ---")
+    # Optional: Display a final summary outside the Live context if needed
+    # ui.display_summary(simulation.to_dict())
