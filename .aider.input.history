@@ -7882,3 +7882,171 @@
 
 # 2025-04-10 15:31:31.697967
 +/architect Make those changes
+
+# 2025-04-10 15:34:58.728358
++/add src/ai_society_simulation/
+
+# 2025-04-10 15:35:05.209908
++/add prompts.yaml config.yaml main.py
+
+# 2025-04-10 15:35:29.705795
++Create a new issue report file in a new issues/ dir for adding consequences and uses for resources and energy
+
+# 2025-04-10 15:35:44.534016
++n
+
+# 2025-04-10 15:35:55.222039
++Use the gh cli to assign that issue to CharlieHelps
+
+# 2025-04-10 15:36:06.310038
++/run gh issue create --title "Define Consequences and Uses for Resources (Energy, Materials)" --body-file issues/resource_consequences.md
+
+# 2025-04-10 15:36:06.310217
++/run gh issue create --title "Define Consequences and Uses for Resources (Energy, Materials)" --body-file issues/resource_consequences.md
+
+# 2025-04-10 15:36:08.821178
++/run gh issue edit <issue-number> --add-assignee CharlieHelps
+
+# 2025-04-10 15:36:08.821503
++/run gh issue edit <issue-number> --add-assignee CharlieHelps
+
+# 2025-04-10 15:36:17.227186
++/run gh issue edit 4 --add-assignee CharlieHelps
+
+# 2025-04-10 15:36:21.051399
++n
+
+# 2025-04-10 15:36:29.374960
++/celar
+
+# 2025-04-10 15:36:30.555745
++/clear
+
+# 2025-04-10 15:36:41.040142
++/add project-plan.md
+
+# 2025-04-10 15:37:05.017285
++Create a new issue report in issues/ for adding the memory system. This should be private to each agent, allowing them to develop their own internal motivations
+
+# 2025-04-10 15:37:33.203333
++/ask What other issues can we create?
+
+# 2025-04-10 15:37:40.136595
++/clear
+
+# 2025-04-10 15:37:54.678798
++/ask What other issues can we create?
+
+# 2025-04-10 15:38:02.122384
++/ask What else can we add to this simulation?
+
+# 2025-04-10 15:38:55.679687
++Create new issue report files for each of those. Don't edit any other files, only create 5 new files in issues/
+
+# 2025-04-10 15:39:31.521361
++n
+
+# 2025-04-10 15:41:11.010030
++/ask In what order should we implment these?
+
+# 2025-04-10 15:43:00.568396
++/clear
+
+# 2025-04-10 15:43:02.575765
++/drop issues
+
+# 2025-04-10 15:43:35.013682
++Create a new issue report for setting up proper pytest infra in this. It shouldn't rely heavliy on mocks
+
+# 2025-04-10 15:44:28.984299
++n
+
+# 2025-04-10 15:44:30.938106
++/run pytest
+
+# 2025-04-10 15:45:07.504119
++What's wrong? Fix
+
+# 2025-04-10 15:45:15.151320
++/run tree -I venv
+
+# 2025-04-10 15:45:17.702662
++/run pytest
+
+# 2025-04-10 15:45:18.613407
++What's wrong? Fix
+
+# 2025-04-10 15:45:37.304546
++/run pytest
+
+# 2025-04-10 15:45:37.304626
++/run pytest
+
+# 2025-04-10 15:45:51.686758
++Fix...
+
+# 2025-04-10 15:46:00.425686
++/run pytest
+
+# 2025-04-10 15:46:00.426039
++/run pytest
+
+# 2025-04-10 15:46:21.853106
++You can mock ollama calls, just make sure the code that is being tested isn't mocked
+
+# 2025-04-10 15:47:00.749139
++n
+
+# 2025-04-10 15:47:44.645079
++/run pytest
+
+# 2025-04-10 15:47:44.645317
++/run pytest
+
+# 2025-04-10 15:47:56.393074
++/run pip install -r requirements.txt
+
+# 2025-04-10 15:48:00.053639
++/run pytest
+
+# 2025-04-10 15:48:01.975982
++What's wrong? Fix
+
+# 2025-04-10 15:48:39.672152
++/run pip install -r requirements.txt
+
+# 2025-04-10 15:48:39.672352
++/run pip install -r requirements.txt
+
+# 2025-04-10 15:48:41.484484
++/run pytest
+
+# 2025-04-10 15:48:41.484659
++/run pytest
+
+# 2025-04-10 15:48:53.167699
++/add src/ai_society_simulation/agent.py 
+
+# 2025-04-10 15:48:53.880199
++Fix
+
+# 2025-04-10 15:49:06.041379
++/run pytest
+
+# 2025-04-10 15:49:06.041636
++/run pytest
+
+# 2025-04-10 15:49:09.423567
++Bruh
+
+# 2025-04-10 15:49:49.004308
++/run pytest
+
+# 2025-04-10 15:49:49.004450
++/run pytest
+
+# 2025-04-10 15:49:58.200081
++/clear
+
+# 2025-04-10 15:50:20.929736
++/ask I don't think the agents have up to date access to the resources and energy metrics, can you make sure this is the case?

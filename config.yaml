@@ -29,8 +29,8 @@ initial_knowledge_base_file: data/knowledge-base.json # Optional: Path to a JSON
 resources:
   types: ["Energy", "Materials"] # List of resource names
   initial_levels: # Starting amounts for each resource type (Reduced)
-    Energy: 500
-    Materials: 250
+    Energy: 10
+    Materials: 10
   generation_per_tick: # Amount generated globally each tick (Slightly reduced)
     Energy: 8
     Materials: 4

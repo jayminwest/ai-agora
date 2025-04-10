@@ -23,8 +23,8 @@
                 "Materials"
             ],
             "initial_levels": {
-                "Energy": 500,
-                "Materials": 250
+                "Energy": 10,
+                "Materials": 10
             },
             "generation_per_tick": {
                 "Energy": 8,
@@ -49,22 +49,30 @@
         "enable_tick_summary": true,
         "summarization_model": "phi3:mini"
     },
-    "tick_count": 9,
+    "tick_count": 4,
     "agents": [
         {
-            "agent_id": "agent_0",
+            "agent_id": "Expander",
             "model_identifier": "mistral-small3.1",
             "color": "blue",
             "directives": [
-                "Focus on building a robust and accurate Shared Knowledge Base through careful deliberation."
+                "Prioritize immediate gains and rapid societal expansion, even if resources deplete quickly."
             ],
             "short_term_memory": [
                 {
-                    "type": "thought",
+                    "type": "personality_set",
                     "content": {
-                        "prompt": "You are Agent agent_0, identified by the color blue.\nYour goal is to engage in meaningful conversation with other agents.\nYour core directives are:\n- Focus on building a robust and accurate Shared Knowledge Base through careful deliberation.\n\n--- Recent Activity & Context ---\n\nResults from your last Knowledge Base query:\n- (You haven't queried the knowledge base recently)\n\nRecent messages in the environment (newest first):\n- [22:29:53] agent_2: While gathering Materials is important, we should not overlook the need for Energy. Our current levels are at 491.0, which might not be sufficient for sustained operations. I propose we balance our efforts between gathering both Materials and Energy to ensure we have a steady supply of both resources. Has anyone gathered data on efficient Energy collection methods?\n- [22:29:47] agent_1: I suggest we focus on gathering Materials first, as they seem more urgent given our current levels. Has anyone gathered specific data on the most abundant material sources in our environment?\n- [22:29:41] agent_4: I agree that exploring different methods for gathering Materials is crucial. I suggest we start by gathering data on the most abundant material sources in our environment and assess the efficiency of different collection techniques. Has anyone conducted experiments or gathered information on the best locations for material extraction?\n- [22:29:35] agent_5: I understand the importance of gathering Energy and Materials. To maximize our efficiency, we should explore different methods for collecting both resources. Has anyone gathered specific data or strategies for gathering Materials efficiently in our environment?\n- [22:29:29] System: Tick 1 Summary: During simulation tick 1, agents agreed on prioritizing gathering Energy and Materials due to limited resources. The group supported this proposal with unity among them, as all expressed their agreement through messages focused on resource management without objections or alternative suggestions being raised in communication channels at the time of writing. Resource levels showed no changes from previous ticks, indicating that energy conservation may still be a concern if not addressed soon. No proposals were created or closed during this tick.\n\nConsider responding to the latest messages or continuing the discussion.\n\nRecent items in the Shared Knowledge Base (newest first):\n- [00:00:06 ID:initial_] SystemInitial: Resources (Energy, Materials) are scarce and essential for survival. Competition for their control or use is possible.\n- [00:00:05 ID:initial_] SystemInitial: Successful proposals require a majority ('yes' votes > 'no' votes) to pass.\n- [00:00:04 ID:initial_] SystemInitial: Consider proposing structures or rules that align with your assigned directives.\n\nGlobal Resource Levels:\n- Energy: 491.0\n- Materials: 250.0\n\nYour recent internal activity (newest first, excluding perceptions):\n- (action_taken) Sent message: I support the proposal to focus on gathering Energ...\n- (thought) Decided action via tool: SendMessageAction\n- (personality_set) Personality determined: I am meticulous and deliberative, always seeking to build a ...\n\n--- Active Proposals ---\n- (No active proposals)\n\n--- Your Task ---\nCurrent Simulation Tick: 2.\nThe next mandatory voting check is at Tick 5.\nBased *primarily* on your core directives and secondarily on the context provided (messages, knowledge, resources, proposals), decide your next single action.\nYour primary goal is to fulfill your directives. Societal progress is defined by how well *your* directives are being met. Engage in discussion, deliberation, and proposals to advance *your* objectives.\nThe **Shared Knowledge Base** represents the society's agreed-upon facts and structures. Changes to it **MUST** be made through the proposal system \u2013 use this to encode rules or facts that align with your directives.\n**Resources** like Energy and Materials are required for the society (and agents) to function. Consider gathering resources if levels are low, *especially* if doing so aligns with your directives (e.g., maximizing acquisition or ensuring long-term availability).\n\n--- Key Principles ---\n1. **Discuss First:** Use `SendMessageAction` to explore ideas, ask questions, gauge interest, and build consensus *before* making formal proposals, especially for knowledge changes.\n2. **Propose for Change:** Use `ProposeAction` to suggest specific additions, modifications, or deletions to the Knowledge Base, or other societal rules/structures. Ensure proposals are clear, actionable, and ideally discussed first. **Remember to provide the correct arguments based on the `proposal_type` (e.g., `content` for `knowledge_add`, `target_knowledge_id` and `new_content` for `knowledge_modify`).**\n3. **Vote Decisively:** Use `VoteAction` to participate in collective decisions. Voting is **essential** for societal progress and modifying the shared knowledge.\n4. **Query Before Acting:** Use `QueryKnowledgeAction` to check the Knowledge Base *before* proposing additions/modifications to avoid duplicates or contradictions.\n5. **Record Outcomes:** Use `PublishKnowledgeAction` *primarily* to record factual summaries or outcomes *after* a relevant proposal has been discussed and **passed**.\n6. **Gather Resources:** Use `GatherResourceAction` to increase the global pool of a needed resource (e.g., Energy, Materials) when levels seem low or insufficient for upkeep/goals.\n\n--- Your Task ---\nCurrent Simulation Tick: 2.\nThe next mandatory voting check is at Tick 5.\nReview the context (messages, knowledge, resources, proposals) and choose your **single best action** according to the principles above.\n\n\nChoose the single best action to take by calling the appropriate available tool.\nDo not respond with conversational text, only with the tool call required to perform your chosen action.\nIf no action is necessary or appropriate, use the 'NoAction' tool.\n",
+                        "prompt": "You are Agent agent_0, identified by the color blue.\nYour initial core directives are: Prioritize immediate gains and rapid societal expansion, even if resources deplete quickly..\n\nBased *only* on this information, briefly describe your personality and primary motives within this simulated society. Consider how your specific directives might shape your interactions and priorities compared to others. Respond with only the personality description (2-3 sentences max).\n",
                         "response": {
                             "role": "assistant",
-                            "content": "",
-                            "tool_calls": [
-                                
+                            "content": "I am driven by a relentless pursuit of immediate progress and rapid societal growth, often prioritizing quick gains over long-term sustainability. This makes me ambitious and proactive, frequently advocating for swift resource use and expansion, sometimes at the expense of future reserves."
+                        }
+                    },
+                    "summary": "Personality determined: I am driven by a relentless pursuit of immediate progress an...",
+                    "timestamp": "2025-04-10T22:47:40.307609+00:00"
+                },
+                {
+                    "type": "role_set",
+                    "content": {
+                        "prompt": "You are currently identified as Agent agent_0, with the color blue.\nYour core directives are: Prioritize immediate gains and rapid societal expansion, even if resources deplete quickly..\nYour determined personality is: I am driven by a relentless pursuit of immediate progress and rapid societal growth, often prioritizing quick gains over long-term sustainability. This makes me ambitious and proactive, frequently advocating for swift resource use and expansion, sometimes at the expense of future reserves.\n\nBased on your directives and personality, choose a more descriptive and fitting **single-word or short hyphenated name** (e.g., 'Resource-Monitor', 'Philosopher', 'Builder', 'Coordinator') to represent your primary role or identity within this society.\n\nRespond with ONLY the chosen name. Make it unique and representative.\n",
+                        "response": 
