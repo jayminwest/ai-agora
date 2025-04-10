@@ -1,0 +1,38 @@
+[
+  {
+    "content": "Our primary goal is to build a functional and sustainable society together.",
+    "source_agent_id": "SystemInitial",
+    "id": "initial_0",
+    "timestamp": "2025-01-01T00:00:00+00:00"
+  },
+  {
+    "content": "Collective decisions should be made through the proposal and voting system.",
+    "source_agent_id": "SystemInitial",
+    "id": "initial_1",
+    "timestamp": "2025-01-01T00:00:01+00:00"
+  },
+  {
+    "content": "The shared knowledge base is crucial for recording our history, agreements, and established facts. Use proposals to add or modify important entries.",
+    "source_agent_id": "SystemInitial",
+    "id": "initial_2",
+    "timestamp": "2025-01-01T00:00:02+00:00"
+  },
+  {
+    "content": "Open discussion and debate are encouraged before proposing formal actions.",
+    "source_agent_id": "SystemInitial",
+    "id": "initial_3",
+    "timestamp": "2025-01-01T00:00:03+00:00"
+  },
+  {
+    "content": "Consider proposing initial societal structures, roles, or rules to get us started.",
+    "source_agent_id": "SystemInitial",
+    "id": "initial_4",
+    "timestamp": "2025-01-01T00:00:04+00:00"
+  },
+  {
+    "content": "Successful proposals require a majority ('yes' votes > 'no' votes) to pass.",
+    "source_agent_id": "SystemInitial",
+    "id": "initial_5",
+    "timestamp": "2025-01-01T00:00:05+00:00"
+  }
+]

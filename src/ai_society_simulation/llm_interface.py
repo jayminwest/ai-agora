@@ -1,53 +1,103 @@
-"""Handles interaction with the LLM (e.g., Ollama)."""
+"""Handles interaction with the LLM (e.g., Ollama), including tool calling."""
 
 import logging
 import json
-import ollama # Assuming ollama library is installed
+from typing import Callable, Optional, Any, Dict, List # Import List
+import ollama
+import dataclasses # Import dataclasses for fallback JSON
 
 logger = logging.getLogger(__name__)
 
-def call_ollama(model_identifier: str, prompt: str) -> str:
+# Define a fallback action for errors when JSON is expected
+@dataclasses.dataclass
+class ErrorAction:
+    _action_type: str = "NoAction"
+    reason: str = "LLM call failed or returned invalid data."
+
+    def to_dict(self):
+        return dataclasses.asdict(self)
+
+# Define a simple callback type hint
+StreamCallback = Optional[Callable[[Dict[str, Any]], None]]
+
+def call_ollama(
+    model_identifier: str,
+    prompt: str,
+    tools: Optional[List[Dict[str, Any]]] = None, # Add tools parameter
+    stream_callback: StreamCallback = None,
+    request_json_format: bool = False # Default to False now, tool usage implies structured output
+) -> Dict[str, Any]:
     """
-    Calls the Ollama API with the given model and prompt.
+    Calls the Ollama API with the given model, prompt, and optional tools.
+    Supports streaming callbacks.
 
     Args:
         model_identifier: The name of the Ollama model to use.
         prompt: The input prompt for the model.
+        tools: An optional list of tool definitions for the model to use.
+        stream_callback: An optional function to call with each response chunk during streaming.
+        request_json_format: If True (and no tools provided), requests JSON format.
+                           Generally False when using tools, as the structure comes from tool calls.
 
     Returns:
-        The response content from the LLM as a string (expected to be JSON).
+        The complete response message dictionary from the Ollama API.
+        This dictionary might contain 'content' or 'tool_calls'.
+        In case of errors, returns a dictionary representing a NoAction with an error reason.
 
     Raises:
-        Exception: If the API call fails.
+        Exception: If the API call fails catastrophically (though most errors return the error dict).
     """
     logger.debug(f"Calling Ollama model '{model_identifier}'...")
+    if tools:
+        logger.debug(f"Providing {len(tools)} tools: {[t['function']['name'] for t in tools]}")
+
+    # Determine format based on tools and request_json_format flag
+    req_format = None
+    if not tools and request_json_format:
+        req_format = 'json'
+
     try:
-        # MVP: Basic call, assuming JSON format response is requested in prompt
+        # Non-streaming call for simplicity when using tools, as the full response is needed
+        # to see tool calls. Streaming tool calls might be supported later by Ollama.
+        # If streaming is essential even for non-tool text responses, logic needs adjustment.
+        if stream_callback:
+             logger.warning("Stream callback provided but currently ignored when using tool calling or non-streaming mode.") # Adjust if Ollama adds streaming tool calls
+
         response = ollama.chat(
             model=model_identifier,
             messages=[{'role': 'user', 'content': prompt}],
-            format='json' # Request JSON output directly if supported
+            tools=tools if tools else None,
+            format=req_format,
+            stream=False # Use non-streaming for tool calls for now
         )
-        response_content = response['message']['content']
-        logger.debug(f"Ollama response received: {response_content[:100]}...") # Log truncated response
-        # Basic validation: Check if it's valid JSON
-        try:
-            json.loads(response_content)
-            return response_content
-        except json.JSONDecodeError:
-            logger.warning(f"Ollama response for model {model_identifier} was not valid JSON: {response_content}")
-            # Fallback: Wrap the non-JSON response in a basic JSON structure
-            fallback_json = json.dumps({"thought": f"Received non-JSON response: {response_content}"})
-            return fallback_json
+
+        # Log the raw response structure for debugging
+        logger.debug(f"Ollama raw response: {response}")
+
+        # Check if the response structure is as expected
+        if isinstance(response, dict) and 'message' in response:
+             message_content = response['message']
+             # Log tool calls if present
+             if message_content.get('tool_calls'):
+                 logger.info(f"Ollama response contains tool calls: {message_content['tool_calls']}")
+             elif message_content.get('content'):
+                 logger.info(f"Ollama response contains content: {message_content['content'][:150]}...")
+             else:
+                  logger.warning("Ollama response message has neither content nor tool_calls.")
+             return response['message'] # Return the inner message dictionary
+        else:
+            logger.error(f"Unexpected response structure from Ollama: {response}")
+            return ErrorAction(reason=f"Unexpected response structure from Ollama: {response}").to_dict()
+
 
     except Exception as e:
-        logger.error(f"Error calling Ollama model {model_identifier}: {e}")
-        # Return a dummy error JSON string
-        error_json = json.dumps({"error": str(e), "thought": "LLM call failed."})
-        return error_json
+        logger.error(f"Error during Ollama call for model {model_identifier}: {e}", exc_info=True)
+        # Return a dictionary representing NoAction on error
+        return ErrorAction(reason=f"LLM call failed: {e}").to_dict()
+
 
 # Example of a dummy implementation (keep commented out if using real call)
-# def call_ollama(model_identifier: str, prompt: str) -> str:
+# def call_ollama(model_identifier: str, prompt: str, stream_callback: StreamCallback = None) -> str:
 #     """Dummy implementation for testing without Ollama."""
 #     logger.debug(f"Dummy call to Ollama model '{model_identifier}'...")
 #     # time.sleep(0.1) # Simulate delay

@@ -5,6 +5,10 @@ import time
 import yaml
 import os
 import sys
+import argparse
+import select # For non-blocking input check
+import tty    # For setting terminal to cbreak mode
+import termios # For getting/setting terminal attributes
 
 # Ensure the src directory is in the Python path
 # This allows importing modules like `ai_society_simulation.simulation`
@@ -17,6 +21,7 @@ from ai_society_simulation.simulation import Simulation
 from ai_society_simulation.persistence import save_state, load_state
 from ai_society_simulation.ui import SimulationUI
 from rich.live import Live
+from rich.logging import RichHandler # Import RichHandler
 
 # --- Configuration ---
 CONFIG_PATH = os.path.join(project_root, 'config.yaml')
@@ -44,14 +49,28 @@ def setup_logging(log_level_str: str = "INFO", log_file: str = "simulation.log")
     if root_logger.hasHandlers():
         root_logger.handlers.clear()
 
+    # Create a RichHandler for console output that works with Live display
+    # It uses sensible defaults for formatting and level handling
+    rich_handler = RichHandler(level=log_level, log_time_format="[%X]", show_path=False) # Customize format slightly
+
     root_logger.addHandler(file_handler)
+    root_logger.addHandler(rich_handler) # Use RichHandler for console
 
     # Example of setting a higher level for a noisy library
     # logging.getLogger("noisy_library").setLevel(logging.WARNING)
-    logging.info(f"Logging configured. Outputting to {log_file}")
+    logging.info(f"Logging configured. Outputting to {log_file} and console via RichHandler.") # Update log message slightly
 
 # --- Main Execution ---
 if __name__ == "__main__":
+    # 0. Parse Command Line Arguments
+    parser = argparse.ArgumentParser(description="Run the AI Society Simulation.")
+    parser.add_argument(
+        '--new-sim',
+        action='store_true',
+        help="Force start of a new simulation, ignoring any existing save file."
+    )
+    args = parser.parse_args()
+
     # 1. Load Configuration
     try:
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -89,7 +108,15 @@ if __name__ == "__main__":
 
     # 4. Initialize or Load Simulation
     simulation: Simulation
-    loaded_state = load_state(save_filename)
+    loaded_state = None # Initialize loaded_state to None
+
+    # Ensure the save directory exists before trying to load or save
+    os.makedirs(DEFAULT_SAVE_DIR, exist_ok=True)
+
+    if not args.new_sim: # Only attempt to load if --new-sim is NOT provided
+        loaded_state = load_state(save_filename)
+    else:
+        logger.info("`--new-sim` flag provided. Starting a new simulation.")
 
     if loaded_state:
         logger.info("Attempting to load simulation state from file.")
@@ -108,51 +135,95 @@ if __name__ == "__main__":
     # 5. Initialize UI
     ui = SimulationUI()
 
-    # 6. Run Simulation Interactively with Live Display
+    # 6. Run Simulation Interactively with Live Display and Non-Blocking Input
+    # Get the file descriptor for stdin
+    fd = sys.stdin.fileno()
+    # Save the old terminal settings
+    old_settings = termios.tcgetattr(fd)
+
     try:
-        logger.info("Starting interactive simulation. Press Enter to advance tick, 'q' then Enter to quit.")
+        logger.info("Starting interactive simulation. Controls: [r]un/pause, [Enter/Space] step, [q]uit.")
+        # Set terminal to cbreak mode to read keys instantly
+        tty.setcbreak(sys.stdin.fileno())
+
+        continuous_run_mode = False
+        last_input_time = 0 # Debounce input
+
         # Use screen=True to clear screen on exit, transient=False to keep final state visible
-        with Live(ui.display_tick(simulation.to_dict()), refresh_per_second=10, screen=True, transient=False) as live:
+        with Live(ui.display_tick(simulation.to_dict(), continuous_run_mode), refresh_per_second=10, screen=True, transient=False) as live:
             while True:
-                live.update(ui.display_tick(simulation.to_dict())) # Update display first
+                # Check for keyboard input without blocking
+                # Timeout determines loop speed when running continuously (e.g., 0.1 = 10Hz max)
+                rlist, _, _ = select.select([sys.stdin], [], [], 0.1)
+                current_time = time.time()
 
-                # Wait for user input to proceed
-                try:
-                    user_input = input() # Blocks here until Enter is pressed
-                except EOFError: # Handle Ctrl+D or similar EOF signals gracefully
-                    logger.warning("EOF detected, exiting simulation.")
-                    break
+                if rlist and (current_time - last_input_time > 0.2): # Check if input is available and debounce
+                    char = sys.stdin.read(1)
+                    last_input_time = current_time
 
-                if user_input.strip().lower() == 'q':
-                    logger.info("Quit command received. Exiting simulation loop.")
-                    break
-                elif user_input.strip() == "": # Check for Enter key (empty input)
-                    logger.info(f"Advancing to tick {simulation.tick_count + 1}...")
-                    simulation.run_tick()
+                    if char == 'q':
+                        logger.info("Quit command received. Exiting simulation loop.")
+                        break
+                    elif char == 'r':
+                        continuous_run_mode = not continuous_run_mode
+                        status = "Running continuously" if continuous_run_mode else "Paused"
+                        logger.info(f"Run mode toggled. Status: {status}")
+                    elif char in ['\n', ' ']: # Enter or Space key
+                        if not continuous_run_mode:
+                            logger.info(f"Stepping 1 tick to {simulation.tick_count + 1}...")
+                            # Define the UI update callback function (needed here too for manual step)
+                            def update_live_display():
+                                live.update(ui.display_tick(simulation.to_dict(), continuous_run_mode))
+                            simulation.run_tick(update_ui_callback=update_live_display) # Pass callback for manual step
+                            # Periodic saving check after manual step
+                            save_interval = config.get('save_interval_ticks', 0)
+                            if save_interval > 0 and simulation.tick_count % save_interval == 0:
+                                logger.info(f"Periodic save triggered at tick {simulation.tick_count}.")
+                                save_state(simulation.to_dict(), save_filename)
+                        else:
+                            # If running, Enter/Space pauses it
+                            continuous_run_mode = False
+                            logger.info("Paused continuous run.")
+                    else:
+                        logger.debug(f"Ignoring key: {repr(char)}")
 
-                    # Optional: Periodic saving (using config setting)
-                    save_interval = config.get('save_interval_ticks', 10)
+
+                # Define the UI update callback function
+                def update_live_display():
+                    live.update(ui.display_tick(simulation.to_dict(), continuous_run_mode))
+
+                # Run simulation tick if in continuous mode
+                if continuous_run_mode:
+                    simulation.run_tick(update_ui_callback=update_live_display) # Pass callback
+                    # Periodic saving check during continuous run
+                    save_interval = config.get('save_interval_ticks', 0)
                     if save_interval > 0 and simulation.tick_count % save_interval == 0:
-                         logger.info(f"Periodic save triggered at tick {simulation.tick_count}.")
-                         save_state(simulation.to_dict(), save_filename)
-                else:
-                    # Optional: Could add more commands here later
-                    logger.info(f"Unknown command: '{user_input}'. Press Enter to advance, 'q' to quit.")
-                    # Update the display again to show the message if needed, or just loop
-                    live.update(ui.display_tick(simulation.to_dict()))
+                        logger.info(f"Periodic save triggered at tick {simulation.tick_count}.")
+                        save_state(simulation.to_dict(), save_filename)
+
+                # Update the display in every loop iteration, regardless of mode
+                live.update(ui.display_tick(simulation.to_dict(), continuous_run_mode))
+
+                # Small sleep if paused to prevent high CPU usage when idle
+                if not continuous_run_mode and not rlist:
+                    time.sleep(0.05)
 
 
         logger.info(f"Interactive simulation ended at tick {simulation.tick_count}.")
+
     except KeyboardInterrupt:
         logger.warning("Simulation run interrupted by user (KeyboardInterrupt).")
-        # The Live display context manager handles cleanup
     except Exception as e:
-        logger.exception(f"An unexpected error occurred during simulation run: {e}") # Use exc_info=True
+        logger.exception(f"An unexpected error occurred during simulation run: {e}")
         # Optionally save state on unexpected error
         # save_state(simulation.to_dict(), save_filename + ".error")
+    finally:
+        # IMPORTANT: Always restore the old terminal settings
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        logger.info("Restored terminal settings.")
 
 
-    # 7. Save Final State
+    # 7. Save Final State (outside the try/finally for terminal settings)
     try:
         logger.info("Saving final simulation state...")
         save_state(simulation.to_dict(), save_filename)
@@ -160,5 +231,3 @@ if __name__ == "__main__":
         logger.exception(f"Failed to save final state: {e}")
 
     logger.info("--- AI Society Simulation MVP End ---")
-    # Optional: Display a final summary outside the Live context if needed
-    # ui.display_summary(simulation.to_dict())

@@ -1,12 +1,38 @@
 simulation_name: mvp_test
-initial_agents: 1
+initial_agents: 15
+# --- Model Tiers ---
+# IMPORTANT: Models used MUST support Ollama's tool calling feature.
+# Examples: llama3.1, mistral-nemo, firefunction-v2, command-r-plus
+# Check https://ollama.com/search?c=tools for updated list.
+# Using models that don't support tools will likely result in errors or NoAction.
 model_tiers:
-  - phi3:mini
+  - mistral-small3.1 # Known compatible model
+  # - mistral-nemo:latest # Another option
+  # - gemma3:27b # Likely NOT compatible with tool calling
+  # - phi4:latest # Likely NOT compatible with tool calling
 # Add other keys with placeholder values or comments if needed for structure
-agent_directives_pool: ["Seek understanding."]
+agent_directives_pool:
+  - "Collaborate with others to establish shared goals for our society."
+  - "Propose initiatives or rules that you believe will benefit the collective."
+  - "Actively participate in discussions and vote on proposals to shape our future."
+  - "Document important agreements and societal structures in the knowledge base via proposals."
+  - "Identify societal needs and propose solutions through the proposal system."
+  - "Build consensus around important decisions."
+  - "Contribute specialized knowledge or skills for the betterment of the group."
+  - "Focus on long-term societal stability and growth."
+  - "Mediate conflicts and help find common ground for collective action."
+  - "Ensure decisions are made transparently through discussion and voting."
+initial_system_message: "Welcome, builders. This space is yours to shape. Discuss, propose, and vote to create a thriving society. Your collective decisions will determine its future." # Configurable system prompt
+initial_knowledge_base_file: data/knowledge-base.json # Optional: Path to a JSON file with initial knowledge items (relative to project root)
 influence_rules: {} # Placeholder
 upgrade_mechanism: voting # Placeholder
 upgrade_threshold: 100 # Placeholder
 tick_delay_ms: 100 # Placeholder
-save_interval_ticks: 10 # Placeholder
-log_level: INFO # Placeholder
+save_interval_ticks: 10 # How often to automatically save state
+log_level: INFO # Logging verbosity (DEBUG, INFO, WARNING, ERROR)
+forced_vote_interval: 5 # Ticks between forced voting prompts (0 to disable)
+prompts_file: prompts.yaml # Path to the YAML file containing LLM prompt templates (relative to project root)
+
+# Tick Summarization Configuration
+enable_tick_summary: true # Set to true to enable LLM-based tick summaries
+summarization_model: "phi4:latest" # Model to use for generating summaries (e.g., a fast model)
