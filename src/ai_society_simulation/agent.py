@@ -230,6 +230,7 @@ class Agent:
                 return NoAction(reason=f"LLM call failed: {error_reason}")
 
             # --- Process successful Message object ---
+            logger.debug(f"Agent {self.agent_id} received successful Message object: Role={response_obj.role}, Content='{response_obj.content[:50]}...', ToolCalls={response_obj.tool_calls}")
             tool_calls = response_obj.tool_calls # Access attribute directly
 
             # Prepare response data for logging memory
@@ -240,6 +241,7 @@ class Agent:
             }
 
             if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
+                logger.debug(f"Agent {self.agent_id} detected tool calls: {tool_calls}")
                 # Process the first tool call
                 # TODO: Handle multiple tool calls if needed in the future
                 tool_call = tool_calls[0]
@@ -276,9 +278,11 @@ class Agent:
                      return NoAction(reason=f"Error creating action {tool_name} from tool call: {e}")
 
             else:
+                logger.debug(f"Agent {self.agent_id} detected NO tool calls in the response.")
                 # No tool call was made, check for content or treat as NoAction
                 response_content = response_obj.content # Access attribute
                 if response_content:
+                    logger.debug(f"Agent {self.agent_id} detected content response instead of tool call: '{response_content[:100]}...'")
                     # LLM responded with text instead of a tool call.
                     # Decide how to handle this. For now, log it and default to NoAction.
                     # Could potentially interpret as a SendMessageAction in the future.

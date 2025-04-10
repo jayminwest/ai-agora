@@ -301,12 +301,24 @@ class Simulation:
 
         # 4. Call LLM (requesting plain text)
         try:
-            summary_text = call_ollama(summarization_model, prompt, request_json_format=False)
+            # call_ollama returns a Message object or an error dict
+            response_obj = call_ollama(summarization_model, prompt, request_json_format=False)
 
-            # Clean up potential markdown or quotes
-            summary_text = summary_text.strip().strip('"').strip("'").strip()
-            if summary_text.startswith("```"):
-                 summary_text = summary_text.split('\n', 1)[1].rsplit('\n', 1)[0].strip() # Remove fences
+            if isinstance(response_obj, Message) and isinstance(response_obj.content, str):
+                summary_text = response_obj.content
+                # Clean up potential markdown or quotes
+                summary_text = summary_text.strip().strip('"').strip("'").strip()
+                if summary_text.startswith("```"):
+                     summary_text = summary_text.split('\n', 1)[1].rsplit('\n', 1)[0].strip() # Remove fences
+            elif isinstance(response_obj, dict): # Handle error dict
+                 error_reason = response_obj.get('reason', 'Unknown error')
+                 logger.error(f"Tick summary generation failed: LLM call returned error: {error_reason}")
+                 summary_text = f"Error generating summary: {error_reason}"
+            else: # Handle unexpected type or non-string content
+                 logger.error(f"Tick summary generation failed: Unexpected response type or content. Type: {type(response_obj)}, Content: {getattr(response_obj, 'content', 'N/A')}")
+                 summary_text = "Error generating summary: Unexpected response."
+
+            self.last_tick_summary = summary_text
 
             self.last_tick_summary = summary_text
             logger.info(f"Tick {self.tick_count} Summary: {summary_text}")
