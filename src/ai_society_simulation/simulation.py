@@ -10,6 +10,14 @@ from .environment import Environment
 
 logger = logging.getLogger(__name__)
 
+# Define a list of colors for agents (copied from previous implementation)
+AGENT_COLORS = [
+    "bright_blue", "bright_green", "bright_red", "bright_magenta",
+    "bright_yellow", "bright_cyan", "green", "red", "blue", "magenta",
+    "yellow", "cyan", "dark_orange", "spring_green1", "deep_pink1",
+    "dodger_blue1"
+]
+
 class Simulation:
     """Manages the overall simulation state and execution."""
 
@@ -47,8 +55,11 @@ class Simulation:
             model_id = model_tiers[i % len(model_tiers)]
             # Assign directives (simple assignment for MVP)
             initial_directives = [random.choice(directives_pool)] # Give one random directive
-            agent = Agent(agent_id, model_id, initial_directives)
+            # Assign color
+            color = AGENT_COLORS[i % len(AGENT_COLORS)]
+            agent = Agent(agent_id, model_id, initial_directives, color=color)
             self.agents.append(agent)
+            logger.info(f"Created Agent: {agent_id} (Model: {model_id}, Color: {color}, Directives: {initial_directives})")
 
         # Environment is already initialized in __init__
 
@@ -57,25 +68,33 @@ class Simulation:
         self.tick_count += 1
         logger.info(f"--- Starting Tick {self.tick_count} ---")
 
-        # MVP: Simple sequential execution for the single agent
         if not self.agents:
             logger.warning("No agents in the simulation to run tick.")
             return
 
-        agent = self.agents[0] # Assuming only one agent for MVP
+        # Get environment state once for all agents this tick
+        environment_state = self.environment.get_state()
 
-        # 1. Perception Phase
-        env_state = self.environment.get_state()
-        agent.perceive(env_state)
+        # Agent processing loop
+        # TODO: Consider different processing orders (e.g., random, influence-based)
+        agent_order = self.agents # Simple sequential order for now
+        # agent_order = random.sample(self.agents, len(self.agents)) # Example: Random order
 
-        # 2. Thinking Phase
-        thought = agent.think()
-        # Store thought in memory (basic implementation)
-        agent.update_memories({"type": "thought", "content": thought})
+        for agent in agent_order:
+            try:
+                logger.debug(f"Processing agent {agent.agent_id} for tick {self.tick_count}")
+                # 1. Perceive
+                agent.perceive(environment_state)
 
+                # 2. Think & 3. Act (Combined in Agent.act method)
+                # The agent's act method now includes the think call and action execution
+                agent.act(self.environment) # Agent handles its own thinking and action execution
 
-        # 3. Action Phase
-        agent.act(self.environment) # Pass environment for agent to interact with
+                # 4. Update Memories (Handled within Agent methods)
+
+            except Exception as e:
+                logger.exception(f"Error processing agent {agent.agent_id} during tick {self.tick_count}: {e}")
+                # Decide how to handle agent errors - skip agent? halt simulation?
 
         logger.info(f"--- Ending Tick {self.tick_count} ---")
 
@@ -97,10 +116,22 @@ class Simulation:
         simulation.tick_count = data.get("tick_count", 0)
 
         # Re-create agents and environment from saved state
-        simulation.agents = [Agent.from_dict(agent_data) for agent_data in data.get("agents", [])]
+        loaded_agents_data = data.get("agents", [])
+        simulation.agents = []
+        for i, agent_data in enumerate(loaded_agents_data):
+            try:
+                # Ensure color is loaded if present, otherwise assign default based on index
+                if 'color' not in agent_data:
+                     agent_data['color'] = AGENT_COLORS[i % len(AGENT_COLORS)]
+                     logger.warning(f"Agent {agent_data.get('agent_id', 'Unknown')} loaded without color, assigning default: {agent_data['color']}")
+                simulation.agents.append(Agent.from_dict(agent_data))
+            except Exception as e:
+                logger.error(f"Failed to load agent from data: {agent_data}. Error: {e}", exc_info=True)
+                # Decide how to handle: skip agent? stop loading?
+
         simulation.environment = Environment.from_dict(data.get("environment", {}))
 
-        # Ensure agent count matches config (or handle discrepancy)
+        # Ensure agent count matches config (or handle discrepancy) - Optional check
         if len(simulation.agents) != config.get('initial_agents'):
              logger.warning(f"Loaded state has {len(simulation.agents)} agents, but config specifies {config.get('initial_agents')}. Using loaded agents.")
              # Adjust config in the loaded sim state if needed, or decide on handling strategy
