@@ -1,0 +1,15 @@
+[
+  {
+    "content": "The simulation has just begun."
+  },
+  {
+    "content": "Agents communicate through a shared message log."
+  },
+  {
+    "content": "Knowledge can be published to a shared knowledge base.",
+    "source_agent_id": "SystemDoc"
+  },
+  {
+    "content": "The primary goal is to observe emergent behavior."
+  }
+]
