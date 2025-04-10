@@ -35,33 +35,56 @@ class Agent:
     def perceive(self, environment_state: Dict[str, Any]) -> None:
         """
         Processes the current state of the environment.
-        For MVP, this might just involve noting recent messages.
+        Stores the perception in memory.
         """
-        logger.debug(f"Agent {self.agent_id} perceiving environment.")
-        # Placeholder: In MVP, maybe just log the perception event
-        pass
+        logger.debug(f"Agent {self.agent_id} ({self.color}) perceiving environment.")
+        # Store perception in memory
+        self.update_memories({"type": "perception", "content": environment_state, "summary": "Perceived environment state."})
 
-    def think(self) -> Dict[str, Any]:
+
+    def think(self) -> 'Action':
         """
-        The core thinking process of the agent, interacting with the LLM.
+        Uses the LLM to decide on the next action based on memory and directives.
+        Returns an Action object.
         """
-        logger.debug(f"Agent {self.agent_id} thinking...")
-        # Placeholder: Call LLM interface (dummy for now)
+        logger.debug(f"Agent {self.agent_id} ({self.color}) starting think cycle.")
         from .llm_interface import call_ollama # Avoid circular import at module level
+        from .actions import Action, NoAction, SendMessageAction # Import actions
+        import json # Ensure json is imported
 
         prompt = self._build_prompt()
+        logger.debug(f"Agent {self.agent_id} ({self.color}) sending prompt to LLM: \n{prompt}")
+
         try:
-            # For MVP, use a dummy response or a simple call
             response_text = call_ollama(self.model_identifier, prompt)
-            # Assume response_text is JSON parsable for now
-            import json
-            self.current_thought = json.loads(response_text)
-            logger.info(f"Agent {self.agent_id} thought: {self.current_thought.get('thought', 'N/A')}")
-            return self.current_thought
+            logger.debug(f"Agent {self.agent_id} ({self.color}) received LLM response: {response_text}")
+
+            # Attempt to parse the response as JSON containing an action
+            try:
+                action_data = json.loads(response_text)
+                if isinstance(action_data, dict) and '_action_type' in action_data:
+                    action = Action.from_dict(action_data)
+                    logger.info(f"Agent {self.agent_id} ({self.color}) decided action: {action}")
+                    return action
+                else:
+                    # If JSON is valid but not the expected action format, treat as a thought/message
+                    logger.warning(f"Agent {self.agent_id} ({self.color}) produced valid JSON but not a recognized action format: {action_data}. Sending as message.")
+                    # Fallback: treat non-action JSON as a message to send
+                    return SendMessageAction(content=json.dumps(action_data))
+
+            except json.JSONDecodeError:
+                logger.warning(f"Agent {self.agent_id} ({self.color}) response was not valid JSON: '{response_text}'. Treating as simple message.")
+                # Fallback: treat non-JSON response as a simple message to send
+                return SendMessageAction(content=response_text)
+            except (ValueError, TypeError) as e:
+                # Catch errors during Action.from_dict (unknown type, bad keys)
+                logger.error(f"Agent {self.agent_id} ({self.color}) failed to create action from dict {action_data}: {e}. Defaulting to NoAction.")
+                return NoAction(reason=f"Error processing LLM response: {e}")
+
         except Exception as e:
-            logger.error(f"Agent {self.agent_id} failed to think: {e}")
-            self.current_thought = {"error": str(e), "thought": "Failed to generate thought."}
-            return self.current_thought
+            logger.exception(f"Agent {self.agent_id} ({self.color}) encountered an error during LLM call: {e}")
+            # Return NoAction on general error during think cycle
+            return NoAction(reason=f"Exception during think cycle: {e}")
 
 
     def _build_prompt(self) -> str:
