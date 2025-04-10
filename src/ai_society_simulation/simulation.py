@@ -43,17 +43,24 @@ class Simulation:
         self.knowledge_base_file_path: Optional[str] = None
         self.last_tick_summary: Optional[str] = None
         self.prompts: Dict[str, str] = {} # To store loaded prompts
+        self.resource_config = self.config.get('resources', {}) # Store resource config
 
         self._load_prompts()
 
         # Determine KB path *before* initializing Environment
         self._determine_kb_path() # New helper function call
 
-        # Pass the path to Environment constructor
-        self.environment: Environment = Environment(knowledge_base_file_path=self.knowledge_base_file_path)
+        # Pass the path and resource config to Environment constructor
+        self.environment: Environment = Environment(
+            knowledge_base_file_path=self.knowledge_base_file_path,
+            resource_config=self.resource_config # Pass resource config
+        )
 
         # Load initial knowledge base *using the Environment's method*
         self.environment.load_initial_knowledge() # Environment now handles loading
+
+        # Initialize resources using the Environment's method
+        self.environment.initialize_resources(self.resource_config.get('initial_levels', {}))
 
         self._initialize_agents_and_seed_message() # Separate agent creation
         logger.info(f"Simulation '{config.get('simulation_name', 'Unnamed')}' initialized.")

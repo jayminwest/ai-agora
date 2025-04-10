@@ -24,6 +24,24 @@ agent_directives_pool:
   - "Ensure decisions are made transparently through discussion and voting."
 initial_system_message: "Welcome, builders. This space is yours to shape. Discuss, propose, and vote to create a thriving society. Your collective decisions will determine its future. Let's start by introducing ourselves." # Configurable system prompt
 initial_knowledge_base_file: data/knowledge-base.json # Optional: Path to a JSON file with initial knowledge items (relative to project root)
+
+# --- Resource Management ---
+resources:
+  types: ["Energy", "Materials"] # List of resource names
+  initial_levels: # Starting amounts for each resource type
+    Energy: 1000
+    Materials: 500
+  generation_per_tick: # Amount generated globally each tick
+    Energy: 10
+    Materials: 5
+  agent_upkeep_cost: # Amount consumed per agent per tick
+    Energy: 1
+    # Materials: 0 # Example: No material upkeep initially
+  gather_amounts: # Amount gained when an agent uses GatherResourceAction
+    Energy: 5
+    Materials: 2
+
+
 influence_rules: {} # Placeholder
 upgrade_mechanism: voting # Placeholder
 upgrade_threshold: 100 # Placeholder
@@ -35,4 +53,4 @@ prompts_file: prompts.yaml # Path to the YAML file containing LLM prompt templat
 
 # Tick Summarization Configuration
 enable_tick_summary: true # Set to true to enable LLM-based tick summaries
-summarization_model: "phi4:latest" # Model to use for generating summaries (e.g., a fast model)
+summarization_model: "phi3:mini" # Model to use for generating summaries (e.g., a fast model)

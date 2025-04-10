@@ -162,10 +162,11 @@ class Agent:
         num_msgs = len(environment_state.get('recent_messages', []))
         num_knowledge = len(environment_state.get('recent_knowledge', []))
         num_proposals = len(environment_state.get('active_proposals', []))
+        num_resources = len(environment_state.get('global_resources', {}))
         current_tick = environment_state.get('current_tick', -1)
         is_forced_vote = environment_state.get('is_forced_vote_tick', False)
 
-        perception_summary = f"Perceived environment at Tick {current_tick}: {num_msgs} msgs, {num_knowledge} knowledge, {num_proposals} proposals."
+        perception_summary = f"Perceived environment at Tick {current_tick}: {num_msgs} msgs, {num_knowledge} knowledge, {num_proposals} proposals, {num_resources} resource types."
         if is_forced_vote:
             perception_summary += " (Forced Vote Tick)"
 
@@ -395,7 +396,20 @@ class Agent:
             knowledge_lines.append("- (Could not retrieve recent knowledge from perception memory)")
         context['recent_knowledge_context'] = "\n".join(knowledge_lines)
 
-        # 4. Internal Activity
+        # 4. Global Resources
+        resource_lines = []
+        global_resources = last_perception_content.get('global_resources')
+        if global_resources is not None: # Check if key exists
+            if not global_resources:
+                resource_lines.append("- (No global resources tracked)")
+            else:
+                resource_lines.extend([f"- {res_type}: {level:.1f}" for res_type, level in global_resources.items()])
+        else:
+             resource_lines.append("- (Could not retrieve resource levels from perception memory)")
+        context['resource_context'] = "\n".join(resource_lines)
+
+
+        # 5. Internal Activity
         internal_lines = []
         internal_mems_added = 0
         for mem in reversed(self.short_term_memory):
@@ -409,7 +423,7 @@ class Agent:
             internal_lines.append("- (No recent internal activity)")
         context['internal_activity_context'] = "\n".join(internal_lines)
 
-        # 5. Active Proposals
+        # 6. Active Proposals
         proposal_lines = []
         if not active_proposals:
             proposal_lines.append("- (No active proposals)")
@@ -428,10 +442,10 @@ class Agent:
                 proposal_lines.append(f"  Status: {vote_summary} (Your Vote: {my_vote})")
         context['active_proposals_context'] = "\n".join(proposal_lines)
 
-        # 6. Tick Info & Voting Context
-        current_tick = -1
-        is_forced_vote_tick = False
-        forced_vote_interval = 0
+        # 7. Tick Info & Voting Context
+        current_tick = last_perception_content.get('current_tick', -1)
+        is_forced_vote_tick = last_perception_content.get('is_forced_vote_tick', False)
+        forced_vote_interval = last_perception_content.get('forced_vote_interval', 0)
         for mem in reversed(self.short_term_memory):
             if mem.get('type') == 'perception':
                 current_tick = mem.get('content', {}).get('current_tick', -1)
@@ -447,7 +461,7 @@ class Agent:
         context['voting_context_summary'] = "\n".join(voting_context_lines)
 
 
-        # 7. Voting Instructions
+        # 8. Voting Instructions
         voting_instruction_lines = []
         can_vote = False
         if active_proposals:
@@ -465,7 +479,7 @@ class Agent:
              voting_instruction_lines.append("**MANDATORY VOTE CHECK:** No proposals require your vote currently. Proceed with another action.")
         context['voting_instructions'] = "\n".join(voting_instruction_lines)
 
-        # 8. Action List (REMOVED - Tools are passed via API now)
+        # 9. Action List (REMOVED - Tools are passed via API now)
         # context['action_list'] = _ACTION_LIST_PROMPT_SECTION
 
         # TODO: Implement token counting and context window management more robustly
@@ -507,7 +521,21 @@ class Agent:
                 num_results = len(self.knowledge_query_result)
                 action_summary = f"Queried knowledge base ('{action.query[:40]}...'), found {num_results} results."
                 logger.info(f"Agent {self.agent_id} ({self.color}) {action_summary}") # Log query result count
-            elif isinstance(action, ProposeAction):
+           elif isinstance(action, GatherResourceAction):
+               res_type = action.resource_type
+               gather_amount = environment.get_gather_amount(res_type)
+               if gather_amount > 0:
+                   success = environment.modify_resource(res_type, gather_amount)
+                   if success:
+                       action_summary = f"Gathered {gather_amount:.1f} {res_type}."
+                   else:
+                       # This case might not happen if modify_resource always returns True on partial success
+                       action_summary = f"Attempted to gather {res_type}, but failed (e.g., invalid type)."
+                       logger.warning(f"Agent {self.agent_id} failed to gather {res_type} (modify_resource returned False).")
+               else:
+                   action_summary = f"Attempted to gather {res_type}, but gather amount is zero or negative in config."
+                   logger.warning(f"Agent {self.agent_id} attempted to gather {res_type} with non-positive gather amount configured.")
+           elif isinstance(action, ProposeAction):
                 # Pass the relevant parts of the action to the environment
                 proposal_id = environment.register_proposal(self.agent_id, action.to_dict())
                 action_summary = f"Proposed (ID: {proposal_id}, Type: {action.proposal_type}): {action.description[:40]}..."

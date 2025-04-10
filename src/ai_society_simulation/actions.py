@@ -62,6 +62,13 @@ class QueryKnowledgeAction(Action):
     """Represents the agent querying the shared knowledge base."""
     query: str # The search query string
 
+# --- Resource Actions ---
+@dataclass
+class GatherResourceAction(Action):
+    """Represents the agent attempting to gather a resource, increasing the global pool."""
+    resource_type: str # The type of resource to gather (e.g., "Energy", "Materials")
+    # Amount is determined by environment config for now
+
 # --- Proposal and Voting Actions ---
 
 ProposalType = Literal["general", "knowledge_add", "knowledge_modify", "knowledge_delete"]
@@ -137,6 +144,18 @@ TOOLS_SCHEMA = [
                 "type": "object",
                 "properties": _get_properties_from_dataclass(NoAction),
                 "required": _get_required_fields(NoAction),
+            },
+        },
+    },
+     {
+        "type": "function",
+        "function": {
+            "name": "GatherResourceAction",
+            "description": "Attempt to gather a specific resource (e.g., Energy, Materials) to increase the global pool. Use when resources are needed for societal function or upkeep.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(GatherResourceAction),
+                "required": _get_required_fields(GatherResourceAction),
             },
         },
     },
@@ -241,6 +260,7 @@ _ACTION_CLASSES = {
         SendMessageAction,
         PublishKnowledgeAction,
         QueryKnowledgeAction,
+        GatherResourceAction, # Add new action
         ProposeAction,
         VoteAction,
     ]
@@ -257,25 +277,32 @@ def _get_action_class(action_type_str: str) -> Optional[Type[Action]]:
 if __name__ == '__main__':
     no_act = NoAction(reason="Observing")
     send_act = SendMessageAction(content="Hello from agent!")
+    gather_act = GatherResourceAction(resource_type="Energy")
 
     no_act_dict = no_act.to_dict()
     send_act_dict = send_act.to_dict()
+    gather_act_dict = gather_act.to_dict()
 
     print("NoAction Dict:", no_act_dict)
     print("SendMessageAction Dict:", send_act_dict)
+    print("GatherResourceAction Dict:", gather_act_dict)
 
     # Test deserialization
     try:
         rehydrated_no_act = Action.from_dict(no_act_dict)
         rehydrated_send_act = Action.from_dict(send_act_dict)
+        rehydrated_gather_act = Action.from_dict(gather_act_dict)
         print("Rehydrated NoAction:", rehydrated_no_act)
         print("Rehydrated SendMessageAction:", rehydrated_send_act)
+        print("Rehydrated GatherResourceAction:", rehydrated_gather_act)
         assert isinstance(rehydrated_no_act, NoAction)
         assert isinstance(rehydrated_send_act, SendMessageAction)
+        assert isinstance(rehydrated_gather_act, GatherResourceAction)
         assert rehydrated_no_act.reason == "Observing"
         assert rehydrated_send_act.content == "Hello from agent!"
+        assert rehydrated_gather_act.resource_type == "Energy"
     except Exception as e:
         print(f"An error occurred during deserialization test: {e}")
 
 
-logger.info("Actions module loaded with core actions, proposal, and voting actions.")
+logger.info("Actions module loaded with core actions, proposal, voting, and resource actions.")
