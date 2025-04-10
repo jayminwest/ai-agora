@@ -4,9 +4,9 @@ tags: [ai, simulation, agent-based-modeling, emergent-behavior, local-llm, pytho
 related: ["core/knowledge-system.md", "personal/profile.md"]
 key_concepts: [agent-based-simulation, local-llm, emergent-hierarchy, text-based-interaction, cli-interface, minimal-guardrails]
 personal_contexts: [ai-exploration, systems-thinking, computational-creativity]
-status: planning
+status: in-progress
 created: 2025-04-10
-updated: 2025-04-10
+updated: 2025-04-10 # Placeholder, update as needed
 ---
 
 # AI Society Simulation Project
@@ -186,43 +186,43 @@ This design provides a solid foundation that is simple to start with but offers 
 Focus on getting the absolute simplest version working first to validate the core mechanics before adding complexity.
 
 1.  **Environment Setup:**
-    *   [ ] Create project directory structure (`ai_society_simulation/`, `src/`, `data/`).
-    *   [ ] Set up `requirements.txt` (initially just `ollama`, `pyyaml`).
-    *   [ ] Set up basic `.gitignore`.
-    *   [ ] Initialize git repository (`git init`).
-    *   [ ] Install Ollama and download a small model (e.g., `phi3:mini`).
+    *   [x] Create project directory structure (`ai_society_simulation/`, `src/`, `data/`).
+    *   [x] Set up `requirements.txt` (initially just `ollama`, `pyyaml`, `rich`).
+    *   [x] Set up basic `.gitignore`.
+    *   [x] Initialize git repository (`git init`).
+    *   [ ] Install Ollama and download a small model (e.g., `phi3:mini`). (User responsibility)
 2.  **Configuration:**
-    *   [ ] Create `config.yaml` with minimal settings (e.g., `model_tiers: ["phi3:mini"]`, `initial_agents: 1`).
-    *   [ ] Implement basic loading of `config.yaml` in `main.py`.
+    *   [x] Create `config.yaml` with minimal settings (e.g., `model_tiers: ["phi3:mini"]`, `initial_agents: 1`).
+    *   [x] Implement basic loading of `config.yaml` in `main.py`.
 3.  **Core Simulation Logic (Minimal):**
-    *   [ ] Create `src/ai_society_simulation/agent.py` with a basic `Agent` class (`__init__` with ID, model_id; maybe a simple list for memory).
-    *   [ ] Create `src/ai_society_simulation/environment.py` with a basic `Environment` class (maybe just holds a list of messages).
-    *   [ ] Create `src/ai_society_simulation/llm_interface.py` with a function `call_ollama` that takes a model ID and prompt, and returns the text response (test JSON mode if possible).
-    *   [ ] Create `src/ai_society_simulation/simulation.py` with a basic `Simulation` class:
+    *   [x] Create `src/ai_society_simulation/agent.py` with a basic `Agent` class (`__init__` with ID, model_id; maybe a simple list for memory).
+    *   [x] Create `src/ai_society_simulation/environment.py` with a basic `Environment` class (maybe just holds a list of messages).
+    *   [x] Create `src/ai_society_simulation/llm_interface.py` with a function `call_ollama` that takes a model ID and prompt, and returns the text response (test JSON mode if possible).
+    *   [x] Create `src/ai_society_simulation/simulation.py` with a basic `Simulation` class:
         *   `__init__`: Loads config, creates 1 Agent, basic Environment.
         *   `run_tick()`: Contains the core loop logic for *one* agent:
             *   `perceive()`: (Minimal) Get basic environment state.
             *   `think()`: Construct a *very simple* prompt (e.g., "Output your current thought as JSON: {'thought': '...' }"), call `call_ollama`, parse the response (ideally JSON).
-            *   `act()`: (Minimal) Print the agent's thought to the console.
-    *   [ ] Create `main.py` to initialize `Simulation` and call `run_tick()` once or in a simple loop.
+            *   `act()`: (Minimal) Print the agent's thought to the console. (Now integrated into UI/tick)
+    *   [x] Create `main.py` to initialize `Simulation` and call `run_tick()` once or in a simple loop. (Now interactive)
 4.  **Validation:**
-    *   [ ] Run `main.py`. Does it successfully:
+    *   [x] Run `main.py`. Does it successfully:
         *   Load config?
         *   Initialize the simulation?
-        *   Call Ollama without errors?
-        *   Parse the LLM response?
-        *   Print the expected output (the agent's thought)?
+        *   Call Ollama without errors? (Basic call structure exists)
+        *   Parse the LLM response? (Basic structure exists)
+        *   Print the expected output (the agent's thought)? (Now shown in UI)
 5.  **Basic Persistence:**
-    *   [ ] Implement simple `to_dict()` methods for the minimal `Agent` and `Environment`.
-    *   [ ] Implement `save_state` and `load_state` functions in `src/ai_society_simulation/persistence.py` using `json`.
-    *   [ ] Add save/load capability to `main.py`. Test saving and reloading the minimal state.
+    *   [x] Implement simple `to_dict()` methods for the minimal `Agent` and `Environment`.
+    *   [x] Implement `save_state` and `load_state` functions in `src/ai_society_simulation/persistence.py` using `json`.
+    *   [x] Add save/load capability to `main.py`. Test saving and reloading the minimal state.
 6.  **Logging:**
-    *   [ ] Integrate Python's `logging` module. Add basic logs for simulation start/end, agent thinking, LLM calls, and errors.
+    *   [x] Integrate Python's `logging` module. Add basic logs for simulation start/end, agent thinking, LLM calls, and errors. (Configured to file)
 
-**(Stop here for MVP!)** Once this core loop is validated, *then* proceed with:
+**(MVP Core Structure Complete!)** Next steps involve refining implementations and adding features:
     - Adding more agents.
     - Implementing the multi-stage memory system.
-    - Building the `rich` UI (`ui.py`).
+    - [x] Building the `rich` UI (`ui.py`). (Basic version implemented)
     - Developing the Action system (`actions.py`).
     - Adding influence, hierarchy, and other advanced features.
 
