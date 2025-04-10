@@ -1,6 +1,6 @@
 [
   {
-    "content": "Our primary goal is to build a functional and sustainable society together.",
+    "content": "Our society must navigate potentially differing goals among its members to function.",
     "source_agent_id": "SystemInitial",
     "id": "initial_0",
     "timestamp": "2025-01-01T00:00:00+00:00"
@@ -18,13 +18,13 @@
     "timestamp": "2025-01-01T00:00:02+00:00"
   },
   {
-    "content": "Open discussion and debate are encouraged before proposing formal actions.",
+    "content": "Open discussion is encouraged, but expect debate as agents pursue their core directives.",
     "source_agent_id": "SystemInitial",
     "id": "initial_3",
     "timestamp": "2025-01-01T00:00:03+00:00"
   },
   {
-    "content": "Consider proposing initial societal structures, roles, or rules to get us started.",
+    "content": "Consider proposing structures or rules that align with your assigned directives.",
     "source_agent_id": "SystemInitial",
     "id": "initial_4",
     "timestamp": "2025-01-01T00:00:04+00:00"
@@ -36,7 +36,7 @@
     "timestamp": "2025-01-01T00:00:05+00:00"
   },
   {
-    "content": "Initial reports suggest resources may be limited. Efficient allocation will be necessary.",
+    "content": "Resources (Energy, Materials) are scarce and essential for survival. Competition for their control or use is possible.",
     "source_agent_id": "SystemInitial",
     "id": "initial_6",
     "timestamp": "2025-01-01T00:00:06+00:00"
