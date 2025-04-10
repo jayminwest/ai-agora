@@ -9,6 +9,8 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.live import Live # Import Live here
+from rich.progress_bar import ProgressBar # For resource display
+from rich.console import Group # For grouping elements
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +36,7 @@ class SimulationUI:
         )
         layout["left_panel"].split_column(
             Layout(name="dashboard", ratio=1),
+            Layout(name="resources", size=6),  # Add dedicated resources panel
             Layout(name="agent_inspector", ratio=2),
         )
         layout["right_panel"].split_column(
@@ -91,6 +94,10 @@ class SimulationUI:
                             last_action_type = "PubKnow"
                         elif last_action_type == 'QueryKnowledgeAction':
                             last_action_type = "QueryKnow"
+                        elif last_action_type == 'BuildInfrastructureAction':
+                            last_action_type = "BuildInfra"
+                        elif last_action_type == 'ResearchTechnologyAction':
+                            last_action_type = "Research"
                         break # Found the latest action
 
                 # Append agent line with color and generating status using styles
@@ -103,6 +110,54 @@ class SimulationUI:
 
 
         return Panel(dashboard_content, title="Dashboard")
+        
+    def _create_resources_panel(self, sim_state: Dict[str, Any]) -> Panel:
+        """Creates a panel to display resource information."""
+        env_data = sim_state.get('environment', {})
+        
+        # Get resource values
+        energy = env_data.get('energy', 0)
+        materials = env_data.get('materials', 0)
+        energy_regen = env_data.get('energy_regen_rate', 0)
+        materials_regen = env_data.get('materials_regen_rate', 0)
+        energy_critical = env_data.get('energy_critical_threshold', 20)
+        materials_critical = env_data.get('materials_critical_threshold', 15)
+        collapse_state = env_data.get('collapse_state', False)
+        
+        # Create content
+        content = Group(
+            Text("Resource Status:", style="bold underline"),
+            
+            # Energy display with progress bar
+            Text("Energy:", style="bold cyan"),
+            ProgressBar(total=100, completed=min(100, int(energy)), width=25),
+            Text(f"  {energy:.1f} units (+{energy_regen:.1f}/tick)"),
+            Text(f"  Critical at: {energy_critical}", style="dim"),
+            
+            # Materials display with progress bar  
+            Text("\nMaterials:", style="bold green"),
+            ProgressBar(total=100, completed=min(100, int(materials)), width=25),
+            Text(f"  {materials:.1f} units (+{materials_regen:.1f}/tick)"),
+            Text(f"  Critical at: {materials_critical}", style="dim"),
+        )
+        
+        # Add collapse warning if active
+        title = "Resources"
+        if collapse_state:
+            title = "Resources [CRITICAL]"
+            content = Group(
+                content,
+                Text("\n⚠️ SOCIETY IN COLLAPSE STATE ⚠️", style="bold red"),
+                Text("Most actions restricted until resources recover", style="italic red")
+            )
+        elif energy <= energy_critical or materials <= materials_critical:
+            title = "Resources [Warning]" 
+            content = Group(
+                content,
+                Text("\n⚠️ Resource levels critical!", style="bold yellow")
+            )
+            
+        return Panel(content, title=title, border_style="yellow" if collapse_state else None)
 
     def _create_agent_panel(self, sim_state: Dict[str, Any]) -> Panel:
         """Creates the agent inspector panel displaying a table of agents."""
@@ -166,7 +221,6 @@ class SimulationUI:
             personality_texts.append(Text.from_markup(f"[{color}]{agent_id}[/]: {personality}"))
 
         # Combine table and personality text using Group or just appending to Panel content
-        from rich.console import Group # Import Group
         panel_content = Group(
             table,
             Text("\n--- Agent Personalities ---", style="bold underline"),
@@ -313,6 +367,7 @@ class SimulationUI:
         """Updates the layout with the current simulation state and run status."""
         self.layout["header"].update(Panel(Text("AI Society Simulation", style="bold blue"), style="blue"))
         self.layout["dashboard"].update(self._create_dashboard_panel(simulation_state))
+        self.layout["resources"].update(self._create_resources_panel(simulation_state))
         self.layout["agent_inspector"].update(self._create_agent_panel(simulation_state))
         self.layout["message_log"].update(self._create_message_log_panel(simulation_state))
         self.layout["knowledge_base"].update(self._create_knowledge_base_panel(simulation_state))

@@ -6,6 +6,7 @@ from typing import Dict, Any, List, Optional, Callable # Import Callable
 import os # Import os for path joining
 import json
 import os
+import yaml  # Explicitly import yaml for prompts.yaml loading
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional, Callable
 
@@ -42,6 +43,9 @@ class Simulation:
         self.environment: Environment = Environment()
         self.last_tick_summary: Optional[str] = None
         self.prompts: Dict[str, str] = {} # To store loaded prompts
+        
+        # Configure environment resources from config
+        self._configure_environment_resources()
 
         # Load prompts first
         self._load_prompts()
@@ -52,6 +56,45 @@ class Simulation:
         self._initialize_agents_and_seed_message() # Separate agent creation
         logger.info(f"Simulation '{config.get('simulation_name', 'Unnamed')}' initialized.")
 
+    def _configure_environment_resources(self) -> None:
+        """Configures environment resources based on the config file."""
+        resource_config = self.config.get('resources', {})
+        
+        # Set initial resource amounts
+        if 'initial_energy' in resource_config:
+            self.environment.energy = resource_config.get('initial_energy')
+            logger.info(f"Setting initial energy from config: {self.environment.energy}")
+        
+        if 'initial_materials' in resource_config:
+            self.environment.materials = resource_config.get('initial_materials')
+            logger.info(f"Setting initial materials from config: {self.environment.materials}")
+        
+        # Set regeneration rates
+        if 'energy_regen_rate' in resource_config:
+            self.environment.energy_regen_rate = resource_config.get('energy_regen_rate')
+            logger.info(f"Setting energy regeneration rate from config: {self.environment.energy_regen_rate}")
+        
+        if 'materials_regen_rate' in resource_config:
+            self.environment.materials_regen_rate = resource_config.get('materials_regen_rate')
+            logger.info(f"Setting materials regeneration rate from config: {self.environment.materials_regen_rate}")
+        
+        # Set critical thresholds
+        if 'energy_critical_threshold' in resource_config:
+            self.environment.energy_critical_threshold = resource_config.get('energy_critical_threshold')
+            logger.info(f"Setting energy critical threshold from config: {self.environment.energy_critical_threshold}")
+        
+        if 'materials_critical_threshold' in resource_config:
+            self.environment.materials_critical_threshold = resource_config.get('materials_critical_threshold')
+            logger.info(f"Setting materials critical threshold from config: {self.environment.materials_critical_threshold}")
+        
+        # Set collapse parameters
+        if 'resource_collapse_threshold' in resource_config:
+            self.environment.resource_collapse_threshold = resource_config.get('resource_collapse_threshold')
+            logger.info(f"Setting resource collapse threshold from config: {self.environment.resource_collapse_threshold}")
+        
+        if 'collapse_duration_ticks' in resource_config:
+            self.environment.collapse_duration = resource_config.get('collapse_duration_ticks')
+            logger.info(f"Setting collapse duration from config: {self.environment.collapse_duration} ticks")
 
     def _load_prompts(self) -> None:
         """Loads prompt templates from the file specified in the config."""
@@ -153,6 +196,15 @@ class Simulation:
         if initial_message and not self.environment.message_log: # Only add if defined and log is empty
             self.environment.add_message("System", initial_message)
             logger.info(f"Added initial system message from config: '{initial_message[:100]}...'")
+            
+        # Add a message about resources
+        resource_message = (
+            f"Resources are critical for society operation. Current levels - "
+            f"Energy: {self.environment.energy:.1f}, Materials: {self.environment.materials:.1f}. "
+            f"Actions require resource expenditure. Maintaining sufficient resources is essential."
+        )
+        self.environment.add_message("System", resource_message)
+        logger.info(f"Added resource information message: '{resource_message}'")
 
     def run_tick(self, update_ui_callback: Optional[Callable[[], None]] = None) -> None:
         """
@@ -168,6 +220,22 @@ class Simulation:
         if not self.agents:
             logger.warning("No agents in the simulation to run tick.")
             return
+            
+        # --- Resource Regeneration ---
+        # Regenerate resources at the start of each tick
+        self.environment.regenerate_resources()
+        
+        # Log resource status
+        resource_state = self.environment.get_resource_state()
+        logger.info(f"Resource Status - Energy: {resource_state['energy']:.1f}, Materials: {resource_state['materials']:.1f}")
+        
+        # Add periodic resource update messages to the environment
+        if self.tick_count % 5 == 0:  # Every 5 ticks
+            resource_message = (
+                f"Resource Update - Energy: {resource_state['energy']:.1f}, Materials: {resource_state['materials']:.1f}. "
+                f"Status: {'CRITICAL LOW' if resource_state['collapse_state'] else 'Normal'}"
+            )
+            self.environment.add_message("System", resource_message)
 
         # Agent processing loop
         # Randomize agent order each tick
@@ -199,7 +267,13 @@ class Simulation:
                     # Agent.act now internally manages the is_generating flag during its execution
                     # but we set it before and clear it after here to ensure UI updates correctly
                     # around the entire agent turn.
-                    agent.act(self.environment) # Agent handles its own thinking and action execution
+                    
+                    # Skip agent action if society is in collapse state
+                    if self.environment.is_in_collapse_state():
+                        logger.warning(f"Agent {agent.agent_id} skipped due to society collapse state")
+                        self.environment.add_message("System", f"Agent {agent.agent_id} unable to act due to resource depletion.")
+                    else:
+                        agent.act(self.environment) # Agent handles its own thinking and action execution
                 finally:
                     agent.is_generating = False # Ensure flag is cleared *after* act completes
                     if update_ui_callback:
@@ -278,15 +352,26 @@ class Simulation:
                 proposals_closed_lines.append(f"- Proposal {prop['proposal_id']} by {prop['proposer_agent_id']} finished with status: {prop['status']}")
         else:
             proposals_closed_lines.append("- None")
+            
+        # Add resource state to summary
+        resource_state = self.environment.get_resource_state()
+        resource_lines = [
+            f"- Energy: {resource_state['energy']:.1f} ({('CRITICAL' if resource_state['energy_critical'] else 'Normal')})",
+            f"- Materials: {resource_state['materials']:.1f} ({('CRITICAL' if resource_state['materials_critical'] else 'Normal')})",
+            f"- Society State: {('COLLAPSE' if resource_state['collapse_state'] else 'Normal Operation')}"
+        ]
+        resource_summary = "\n".join(resource_lines)
 
-        # 3. Format the main prompt
+        # 3. Format the main prompt with resource information
         try:
+            # Add resource_summary to the format parameters
             prompt = prompt_template.format(
                 tick_number=self.tick_count,
                 messages_summary="\n".join(message_summary_lines),
                 knowledge_summary="\n".join(knowledge_summary_lines),
                 proposals_created_summary="\n".join(proposals_created_lines),
-                proposals_closed_summary="\n".join(proposals_closed_lines)
+                proposals_closed_summary="\n".join(proposals_closed_lines),
+                resources_summary=resource_summary  # Add resource information
             )
         except KeyError as e:
             logger.error(f"Failed to format tick summary prompt. Missing key: {e}", exc_info=True)
@@ -413,10 +498,105 @@ class Simulation:
                 # Attempt execution if it's a knowledge proposal
                 if proposal['proposal_type'].startswith('knowledge_'):
                     self.environment.execute_knowledge_proposal(proposal)
+                elif proposal['proposal_type'] == 'build_infrastructure':
+                    # Execute build infrastructure proposal
+                    self._execute_build_infrastructure_proposal(proposal)
+                elif proposal['proposal_type'] == 'research_technology':
+                    # Execute research technology proposal
+                    self._execute_research_technology_proposal(proposal)
                 else:
                     # Non-knowledge proposals just get marked passed for now
                     logger.info(f"General proposal {proposal['proposal_id']} passed, no specific execution logic implemented yet.")
+                
+                # Mark as closed in the return list
+                closed_this_call.append(proposal)
             else:
                 proposal["status"] = "failed"
                 logger.info(f"Proposal {proposal['proposal_id']} FAILED ({yes_votes} yes, {no_votes} no).")
+                # Add to closed list
+                closed_this_call.append(proposal)
+                
             proposal["timestamp_closed"] = now_iso
+            
+        return closed_this_call
+        
+    def _execute_build_infrastructure_proposal(self, proposal: Dict[str, Any]) -> None:
+        """Executes a passed build infrastructure proposal."""
+        resource_config = self.config.get('resources', {}).get('build_infrastructure', {})
+        energy_cost = resource_config.get('energy', 5.0)
+        materials_cost = resource_config.get('materials', 8.0)
+        benefit_multiplier = resource_config.get('benefit_multiplier', 1.2)
+        
+        # Check if there are enough resources
+        if (self.environment.energy < energy_cost or 
+            self.environment.materials < materials_cost):
+            logger.warning(f"Cannot execute build infrastructure proposal {proposal['proposal_id']}: Insufficient resources")
+            proposal['status'] = 'failed'
+            self.environment.add_message(
+                "System", 
+                f"The proposal to build infrastructure by {proposal['proposer_agent_id']} could not be executed due to insufficient resources."
+            )
+            return
+            
+        # Consume resources
+        self.environment.consume_energy(energy_cost)
+        self.environment.consume_materials(materials_cost)
+        
+        # Apply benefit
+        self.environment.energy_regen_rate *= benefit_multiplier
+        self.environment.materials_regen_rate *= benefit_multiplier
+        
+        # Log and announce
+        logger.info(
+            f"Infrastructure built via proposal {proposal['proposal_id']}. "
+            f"Resource generation increased by {(benefit_multiplier-1)*100:.1f}%"
+        )
+        
+        self.environment.add_message(
+            "System", 
+            f"Infrastructure constructed! Resource production efficiency increased by {(benefit_multiplier-1)*100:.1f}%. "
+            f"New rates - Energy: {self.environment.energy_regen_rate:.2f}, Materials: {self.environment.materials_regen_rate:.2f}"
+        )
+        
+        proposal['status'] = 'executed'
+        
+    def _execute_research_technology_proposal(self, proposal: Dict[str, Any]) -> None:
+        """Executes a passed research technology proposal."""
+        resource_config = self.config.get('resources', {}).get('research_technology', {})
+        energy_cost = resource_config.get('energy', 10.0)
+        materials_cost = resource_config.get('materials', 3.0)
+        benefit_multiplier = resource_config.get('benefit_multiplier', 1.3)
+        
+        # Check if there are enough resources
+        if (self.environment.energy < energy_cost or 
+            self.environment.materials < materials_cost):
+            logger.warning(f"Cannot execute research technology proposal {proposal['proposal_id']}: Insufficient resources")
+            proposal['status'] = 'failed'
+            self.environment.add_message(
+                "System", 
+                f"The technology research proposal by {proposal['proposer_agent_id']} could not be executed due to insufficient resources."
+            )
+            return
+            
+        # Consume resources
+        self.environment.consume_energy(energy_cost)
+        self.environment.consume_materials(materials_cost)
+        
+        # Apply benefit - Increase critical thresholds to make society more resilient
+        self.environment.energy_critical_threshold /= benefit_multiplier
+        self.environment.materials_critical_threshold /= benefit_multiplier
+        self.environment.resource_collapse_threshold /= benefit_multiplier
+        
+        # Log and announce
+        logger.info(
+            f"Technology researched via proposal {proposal['proposal_id']}. "
+            f"Resource efficiency increased, critical thresholds reduced by {(1-1/benefit_multiplier)*100:.1f}%"
+        )
+        
+        self.environment.add_message(
+            "System", 
+            f"New technology developed! Society now more efficient with resources. "
+            f"Critical thresholds reduced by {(1-1/benefit_multiplier)*100:.1f}% due to improved technology."
+        )
+        
+        proposal['status'] = 'executed'

@@ -8,6 +8,16 @@ import uuid # Import uuid for unique knowledge IDs
 logger = logging.getLogger(__name__)
 PROPOSAL_TTL_SECONDS = 3600 # Default Time-To-Live for proposals (e.g., 1 hour in real time, adjust as needed)
 
+# Default resource settings
+DEFAULT_INITIAL_ENERGY = 100.0
+DEFAULT_INITIAL_MATERIALS = 100.0
+DEFAULT_ENERGY_REGEN_RATE = 5.0
+DEFAULT_MATERIALS_REGEN_RATE = 3.0
+DEFAULT_ENERGY_CRITICAL_THRESHOLD = 20.0
+DEFAULT_MATERIALS_CRITICAL_THRESHOLD = 15.0
+DEFAULT_RESOURCE_COLLAPSE_THRESHOLD = 5.0
+DEFAULT_COLLAPSE_DURATION = 3  # Number of ticks resources must be below threshold to trigger collapse
+
 class Environment:
     """Represents the shared environment for the agents."""
 
@@ -16,7 +26,24 @@ class Environment:
         self.message_log: List[Dict[str, Any]] = []
         self.shared_knowledge_base: List[Dict[str, Any]] = [] # Add knowledge base
         self.proposals: List[Dict[str, Any]] = [] # Add proposal list
-        logger.info("Environment initialized with message log, knowledge base, and proposal list.")
+        
+        # Initialize resources
+        self.energy: float = DEFAULT_INITIAL_ENERGY
+        self.materials: float = DEFAULT_INITIAL_MATERIALS
+        self.energy_regen_rate: float = DEFAULT_ENERGY_REGEN_RATE
+        self.materials_regen_rate: float = DEFAULT_MATERIALS_REGEN_RATE
+        self.energy_critical_threshold: float = DEFAULT_ENERGY_CRITICAL_THRESHOLD
+        self.materials_critical_threshold: float = DEFAULT_MATERIALS_CRITICAL_THRESHOLD
+        self.resource_collapse_threshold: float = DEFAULT_RESOURCE_COLLAPSE_THRESHOLD
+        self.collapse_duration: int = DEFAULT_COLLAPSE_DURATION
+        
+        # Tracking for collapse state
+        self.ticks_energy_below_threshold: int = 0
+        self.ticks_materials_below_threshold: int = 0
+        self.collapse_state: bool = False
+        
+        logger.info("Environment initialized with message log, knowledge base, proposal list, and resources.")
+        logger.info(f"Initial resources - Energy: {self.energy}, Materials: {self.materials}")
 
     def add_message(self, sender_id: str, content: str) -> None:
         """Adds a message to the environment's log with a timestamp."""
@@ -69,6 +96,153 @@ class Environment:
 
         logger.debug(f"Knowledge base query '{query}' found {len(results)} results.")
         return results # Results are already newest first due to reversed iteration
+
+    # --- Resource Management Methods ---
+    
+    def consume_energy(self, amount: float) -> bool:
+        """
+        Consumes a specified amount of energy from the global pool.
+        Returns True if successful, False if insufficient energy.
+        """
+        if self.collapse_state:
+            logger.warning("Energy consumption denied: Society is in collapse state")
+            return False
+            
+        if self.energy < amount:
+            logger.warning(f"Insufficient energy: Requested {amount}, available {self.energy}")
+            return False
+            
+        self.energy -= amount
+        logger.debug(f"Energy consumed: {amount}, remaining: {self.energy}")
+        
+        # Check if critical threshold reached
+        if self.energy <= self.energy_critical_threshold:
+            logger.warning(f"Energy has reached critical level: {self.energy}")
+            
+        return True
+        
+    def consume_materials(self, amount: float) -> bool:
+        """
+        Consumes a specified amount of materials from the global pool.
+        Returns True if successful, False if insufficient materials.
+        """
+        if self.collapse_state:
+            logger.warning("Materials consumption denied: Society is in collapse state")
+            return False
+            
+        if self.materials < amount:
+            logger.warning(f"Insufficient materials: Requested {amount}, available {self.materials}")
+            return False
+            
+        self.materials -= amount
+        logger.debug(f"Materials consumed: {amount}, remaining: {self.materials}")
+        
+        # Check if critical threshold reached
+        if self.materials <= self.materials_critical_threshold:
+            logger.warning(f"Materials have reached critical level: {self.materials}")
+            
+        return True
+        
+    def produce_energy(self, amount: float) -> None:
+        """
+        Adds a specified amount of energy to the global pool.
+        """
+        self.energy += amount
+        logger.debug(f"Energy produced: {amount}, new total: {self.energy}")
+        
+    def produce_materials(self, amount: float) -> None:
+        """
+        Adds a specified amount of materials to the global pool.
+        """
+        self.materials += amount
+        logger.debug(f"Materials produced: {amount}, new total: {self.materials}")
+    
+    def regenerate_resources(self) -> None:
+        """
+        Regenerates a portion of resources each tick.
+        The regeneration rate is reduced if resources are at critical levels.
+        """
+        # Calculate regeneration modifier based on current resource levels
+        energy_modifier = 1.0
+        materials_modifier = 1.0
+        
+        # Reduce energy regeneration when energy is low
+        if self.energy < self.energy_critical_threshold:
+            energy_modifier = max(0.1, self.energy / self.energy_critical_threshold * 0.5)
+            logger.info(f"Energy regeneration reduced to {energy_modifier*100:.1f}% due to low levels")
+            
+        # Reduce materials regeneration when materials are low
+        if self.materials < self.materials_critical_threshold:
+            materials_modifier = max(0.1, self.materials / self.materials_critical_threshold * 0.5)
+            logger.info(f"Materials regeneration reduced to {materials_modifier*100:.1f}% due to low levels")
+        
+        # Apply regeneration with modifiers
+        energy_regen = self.energy_regen_rate * energy_modifier
+        materials_regen = self.materials_regen_rate * materials_modifier
+        
+        self.produce_energy(energy_regen)
+        self.produce_materials(materials_regen)
+        
+        # Update tracking for collapse state
+        self._update_collapse_state()
+        
+    def _update_collapse_state(self) -> None:
+        """
+        Updates the tracking for potential society collapse due to resource depletion.
+        Society enters collapse state if both resources are below threshold for collapse_duration ticks.
+        """
+        # Update counters for each resource
+        if self.energy <= self.resource_collapse_threshold:
+            self.ticks_energy_below_threshold += 1
+        else:
+            self.ticks_energy_below_threshold = 0
+            
+        if self.materials <= self.resource_collapse_threshold:
+            self.ticks_materials_below_threshold += 1
+        else:
+            self.ticks_materials_below_threshold = 0
+            
+        # Determine if society is in collapse state
+        critical_duration_reached = (
+            self.ticks_energy_below_threshold >= self.collapse_duration or
+            self.ticks_materials_below_threshold >= self.collapse_duration
+        )
+        
+        # If entering collapse state, log the event
+        if critical_duration_reached and not self.collapse_state:
+            self.collapse_state = True
+            logger.critical(f"SOCIETY COLLAPSE: Resources critically low for {self.collapse_duration} ticks")
+            self.add_message("System", f"🚨 CRITICAL ALERT: Society entering collapse state due to resource depletion. Energy: {self.energy:.1f}, Materials: {self.materials:.1f}. All non-essential operations suspended.")
+            
+        # If exiting collapse state, log the recovery
+        elif not critical_duration_reached and self.collapse_state:
+            self.collapse_state = False
+            logger.info("Society recovering from collapse state as resources have stabilized")
+            self.add_message("System", f"✅ ALERT: Society recovering from collapse state. Energy: {self.energy:.1f}, Materials: {self.materials:.1f}. Normal operations resuming.")
+    
+    def is_energy_critical(self) -> bool:
+        """Returns True if energy is at or below critical threshold."""
+        return self.energy <= self.energy_critical_threshold
+        
+    def is_materials_critical(self) -> bool:
+        """Returns True if materials are at or below critical threshold."""
+        return self.materials <= self.materials_critical_threshold
+        
+    def is_in_collapse_state(self) -> bool:
+        """Returns True if society is in collapse state due to extended resource depletion."""
+        return self.collapse_state
+    
+    def get_resource_state(self) -> Dict[str, Any]:
+        """Returns a dictionary with the current state of all resources."""
+        return {
+            "energy": self.energy,
+            "materials": self.materials,
+            "energy_critical": self.is_energy_critical(),
+            "materials_critical": self.is_materials_critical(),
+            "collapse_state": self.is_in_collapse_state(),
+            "energy_regen_rate": self.energy_regen_rate,
+            "materials_regen_rate": self.materials_regen_rate
+        }
 
     # --- Proposal Methods ---
 
@@ -202,11 +376,12 @@ class Environment:
 
     def get_state(self) -> Dict[str, Any]:
         """Returns the current state of the environment relevant for agents."""
-        # Provide recent messages, knowledge, and active proposals for agent perception
+        # Provide recent messages, knowledge, active proposals and resources for agent perception
         return {
             "recent_messages": self.get_recent_messages(count=5),
             "recent_knowledge": self.get_recent_knowledge(count=3), # Agents perceive last 3 knowledge items
-            "active_proposals": self.get_active_proposals() # Include active proposals
+            "active_proposals": self.get_active_proposals(), # Include active proposals
+            "resources": self.get_resource_state() # Include resource information
         }
 
     def to_dict(self) -> Dict[str, Any]:
@@ -216,6 +391,18 @@ class Environment:
             "message_log": self.message_log,
             "shared_knowledge_base": self.shared_knowledge_base,
             "proposals": self.proposals, # Save proposals
+            # Save resource data
+            "energy": self.energy,
+            "materials": self.materials,
+            "energy_regen_rate": self.energy_regen_rate,
+            "materials_regen_rate": self.materials_regen_rate,
+            "energy_critical_threshold": self.energy_critical_threshold,
+            "materials_critical_threshold": self.materials_critical_threshold,
+            "resource_collapse_threshold": self.resource_collapse_threshold,
+            "collapse_duration": self.collapse_duration,
+            "ticks_energy_below_threshold": self.ticks_energy_below_threshold,
+            "ticks_materials_below_threshold": self.ticks_materials_below_threshold,
+            "collapse_state": self.collapse_state
         }
 
     @classmethod
@@ -226,5 +413,18 @@ class Environment:
         env.message_log = data.get("message_log", [])
         env.shared_knowledge_base = data.get("shared_knowledge_base", [])
         env.proposals = data.get("proposals", []) # Load proposals
-        # Could add validation here if needed
+        
+        # Load resource data
+        env.energy = data.get("energy", DEFAULT_INITIAL_ENERGY)
+        env.materials = data.get("materials", DEFAULT_INITIAL_MATERIALS)
+        env.energy_regen_rate = data.get("energy_regen_rate", DEFAULT_ENERGY_REGEN_RATE)
+        env.materials_regen_rate = data.get("materials_regen_rate", DEFAULT_MATERIALS_REGEN_RATE)
+        env.energy_critical_threshold = data.get("energy_critical_threshold", DEFAULT_ENERGY_CRITICAL_THRESHOLD)
+        env.materials_critical_threshold = data.get("materials_critical_threshold", DEFAULT_MATERIALS_CRITICAL_THRESHOLD)
+        env.resource_collapse_threshold = data.get("resource_collapse_threshold", DEFAULT_RESOURCE_COLLAPSE_THRESHOLD)
+        env.collapse_duration = data.get("collapse_duration", DEFAULT_COLLAPSE_DURATION)
+        env.ticks_energy_below_threshold = data.get("ticks_energy_below_threshold", 0)
+        env.ticks_materials_below_threshold = data.get("ticks_materials_below_threshold", 0)
+        env.collapse_state = data.get("collapse_state", False)
+        
         return env

@@ -63,7 +63,7 @@ class QueryKnowledgeAction(Action):
 
 # --- Proposal and Voting Actions ---
 
-ProposalType = Literal["general", "knowledge_add", "knowledge_modify", "knowledge_delete"]
+ProposalType = Literal["general", "knowledge_add", "knowledge_modify", "knowledge_delete", "build_infrastructure", "research_technology"]
 
 @dataclass
 class ProposeAction(Action):
@@ -81,6 +81,17 @@ class VoteAction(Action):
     proposal_id: str
     vote: Literal["yes", "no", "abstain"]
 
+# --- Resource Management Actions ---
+
+@dataclass
+class BuildInfrastructureAction(Action):
+    """Represents the agent proposing construction of infrastructure to improve resource generation."""
+    description: str # Description of the infrastructure project
+    
+@dataclass
+class ResearchTechnologyAction(Action):
+    """Represents the agent proposing research of new technology to improve resource efficiency."""
+    description: str # Description of the technology to research
 
 # --- Tool Definitions for Ollama ---
 
@@ -143,7 +154,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "SendMessageAction",
-            "description": "Send a message to the shared communication channel for all agents to see. Use for discussion, asking questions, sharing opinions, or coordinating before proposing.",
+            "description": "Send a message to the shared communication channel for all agents to see. Use for discussion, asking questions, sharing opinions, or coordinating before proposing. Costs 0.2 Energy.",
             "parameters": {
                 "type": "object",
                 "properties": _get_properties_from_dataclass(SendMessageAction),
@@ -155,7 +166,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "PublishKnowledgeAction",
-            "description": "Add a factual statement or agreed-upon summary to the shared knowledge base. Use *after* a proposal has passed or for simple, undisputed facts. Avoid proposing changes with this.",
+            "description": "Add a factual statement or agreed-upon summary to the shared knowledge base. Use *after* a proposal has passed or for simple, undisputed facts. Avoid proposing changes with this. Costs 1.0 Energy.",
             "parameters": {
                 "type": "object",
                 "properties": _get_properties_from_dataclass(PublishKnowledgeAction),
@@ -167,7 +178,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "QueryKnowledgeAction",
-            "description": "Search the shared knowledge base for information using keywords. Use this *before* proposing knowledge additions or modifications to check for existing entries.",
+            "description": "Search the shared knowledge base for information using keywords. Use this *before* proposing knowledge additions or modifications to check for existing entries. Costs 0.5 Energy.",
             "parameters": {
                 "type": "object",
                 "properties": _get_properties_from_dataclass(QueryKnowledgeAction),
@@ -179,7 +190,7 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "ProposeAction",
-            "description": "Propose a formal change or addition to the society's rules or knowledge base. Requires discussion first. Specify the type of proposal (general, knowledge_add, knowledge_modify, knowledge_delete) and provide necessary details.",
+            "description": "Propose a formal change or addition to the society's rules or knowledge base. Requires discussion first. Specify the type of proposal (general, knowledge_add, knowledge_modify, knowledge_delete, build_infrastructure, research_technology) and provide necessary details. Costs 2.0 Energy.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -217,11 +228,35 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "VoteAction",
-            "description": "Cast your vote (yes, no, or abstain) on an active proposal identified by its proposal_id. Voting is essential for collective decision-making.",
+            "description": "Cast your vote (yes, no, or abstain) on an active proposal identified by its proposal_id. Voting is essential for collective decision-making. Costs 0.1 Energy.",
             "parameters": {
                 "type": "object",
                 "properties": _get_properties_from_dataclass(VoteAction),
                 "required": _get_required_fields(VoteAction),
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "BuildInfrastructureAction",
+            "description": "Propose construction of infrastructure to improve resource generation. This will create a formal proposal for society to vote on. Successful proposals increase resource generation rates. Costs 5.0 Energy and 8.0 Materials if approved.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(BuildInfrastructureAction),
+                "required": _get_required_fields(BuildInfrastructureAction),
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ResearchTechnologyAction",
+            "description": "Propose research of new technology to improve resource efficiency. This will create a formal proposal for society to vote on. Successful proposals reduce the critical thresholds for resources. Costs 10.0 Energy and 3.0 Materials if approved.",
+            "parameters": {
+                "type": "object",
+                "properties": _get_properties_from_dataclass(ResearchTechnologyAction),
+                "required": _get_required_fields(ResearchTechnologyAction),
             },
         },
     },
@@ -242,19 +277,9 @@ _ACTION_CLASSES = {
         QueryKnowledgeAction,
         ProposeAction,
         VoteAction,
+        BuildInfrastructureAction,
+        ResearchTechnologyAction,
     ]
-}
-# Add other action classes here as they are created
-
-
-def _get_action_class(action_type_str: str) -> Optional[Type[Action]]:
-    'NoAction': NoAction,
-    'SendMessageAction': SendMessageAction,
-    'PublishKnowledgeAction': PublishKnowledgeAction,
-    'QueryKnowledgeAction': QueryKnowledgeAction,
-    'ProposeAction': ProposeAction, # Register new action
-    'VoteAction': VoteAction,       # Register new action
-    # Add other action classes here as they are created
 }
 
 def _get_action_class(action_type_str: str) -> Optional[Type[Action]]:
@@ -287,4 +312,4 @@ if __name__ == '__main__':
         print(f"An error occurred during deserialization test: {e}")
 
 
-logger.info("Actions module loaded with core actions, proposal, and voting actions.")
+logger.info("Actions module loaded with core actions, proposal, voting actions, and resource management actions.")

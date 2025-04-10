@@ -16,22 +16,22 @@ if TYPE_CHECKING:
 # --- Action List for Prompt (REMOVED - Now using tool definitions) ---
 # _ACTION_LIST_PROMPT_SECTION = """
 # 1. Discuss / Converse:
-#    {{"_action_type": "SendMessageAction", "content": "Your conversational message here."}}
+#    {"_action_type": "SendMessageAction", "content": "Your conversational message here."}
 #
 # 2. Propose Change (Requires Discussion First!):
-#    - General Proposal: {{"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}}
-#    - Add Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}}
-#    - Modify Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_modify", "description": "Reason for modifying this knowledge.", "target_knowledge_id": "kb_xxxxxx", "new_content": "The updated knowledge content."}}
-#    - Delete Knowledge: {{"_action_type": "ProposeAction", "proposal_type": "knowledge_delete", "description": "Reason for deleting this knowledge.", "target_knowledge_id": "kb_xxxxxx"}}
+#    - General Proposal: {"_action_type": "ProposeAction", "proposal_type": "general", "description": "Specific proposal description (e.g., Adopt the tri-faceted leadership model)."}
+#    - Add Knowledge: {"_action_type": "ProposeAction", "proposal_type": "knowledge_add", "description": "Reason for adding this knowledge.", "content": "The specific knowledge content to add."}
+#    - Modify Knowledge: {"_action_type": "ProposeAction", "proposal_type": "knowledge_modify", "description": "Reason for modifying this knowledge.", "target_knowledge_id": "kb_xxxxxx", "new_content": "The updated knowledge content."}
+#    - Delete Knowledge: {"_action_type": "ProposeAction", "proposal_type": "knowledge_delete", "description": "Reason for deleting this knowledge.", "target_knowledge_id": "kb_xxxxxx"}
 #
 # 3. Vote on Active Proposal:
-#    {{"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"}} # Or "no", "abstain"
+#    {"_action_type": "VoteAction", "proposal_id": "prop_xxxxxx", "vote": "yes"} # Or "no", "abstain"
 #
 # 4. Query Knowledge Base:
-#    {{"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}}
+#    {"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}
 #
 # 5. Record Agreed Fact (Use *after* proposal passes or for simple, undisputed facts):
-#    {{"_action_type": "PublishKnowledgeAction", "content": "Factual statement or summary of passed proposal."}}
+#    {"_action_type": "PublishKnowledgeAction", "content": "Factual statement or summary of passed proposal."}
 #
 # # Removed the large _ACTION_LIST_PROMPT_SECTION
 
@@ -124,10 +124,18 @@ class Agent:
         num_proposals = len(environment_state.get('active_proposals', []))
         current_tick = environment_state.get('current_tick', -1)
         is_forced_vote = environment_state.get('is_forced_vote_tick', False)
+        
+        # Get resource state information if available
+        resource_state = environment_state.get('resources', {})
+        energy = resource_state.get('energy', 0)
+        materials = resource_state.get('materials', 0)
+        collapse_state = resource_state.get('collapse_state', False)
 
-        perception_summary = f"Perceived environment at Tick {current_tick}: {num_msgs} msgs, {num_knowledge} knowledge, {num_proposals} proposals."
+        perception_summary = f"Perceived environment at Tick {current_tick}: {num_msgs} msgs, {num_knowledge} knowledge, {num_proposals} proposals. Resources - Energy: {energy:.1f}, Materials: {materials:.1f}"
         if is_forced_vote:
             perception_summary += " (Forced Vote Tick)"
+        if collapse_state:
+            perception_summary += " [SOCIETY IN COLLAPSE STATE]"
 
         # Store the entire perceived state, including tick info and forced vote flag
         self.update_memories({
@@ -137,6 +145,8 @@ class Agent:
         })
         # Store active proposals separately for easier access in _build_prompt
         self._last_perceived_proposals = environment_state.get('active_proposals', [])
+        # Store resource state for action costs
+        self._last_resource_state = environment_state.get('resources', {})
         logger.debug(f"Agent {self.agent_id} ({self.color}): {perception_summary}")
 
 
@@ -172,6 +182,7 @@ class Agent:
         logger.debug(f"Agent {self.agent_id} ({self.color}) sending prompt to LLM with tools.")
 
         # Get tool definitions
+        from .actions import get_tool_definitions
         tools = get_tool_definitions()
 
         try:
@@ -253,293 +264,4 @@ class Agent:
         # Agent Info
         context['agent_id'] = self.agent_id
         context['color'] = self.color
-        context['directives_list'] = "\n".join(f"- {d}" for d in self.directives)
-
-        # Retrieve active proposals stored during perceive()
-        active_proposals = getattr(self, '_last_perceived_proposals', [])
-
-        # 1. Knowledge Query Results
-        query_lines = []
-        if self.knowledge_query_result is not None:
-            query_lines.append("Results from your last Knowledge Base query:")
-            if not self.knowledge_query_result:
-                query_lines.append("- Your query returned no results.")
-            else:
-                for item in self.knowledge_query_result:
-                    ts = item.get('timestamp', '?:??')
-                    source = item.get('source_agent_id', '?')
-                    content = item.get('content', '')
-                    item_id = item.get('id', '?')[:8]
-                    try:
-                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                        else: ts_dt = datetime.fromisoformat(ts)
-                        ts_formatted = ts_dt.strftime('%H:%M:%S')
-                    except ValueError: ts_formatted = ts
-                    query_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
-        else:
-            query_lines.append("Results from your last Knowledge Base query:")
-            query_lines.append("- (You haven't queried the knowledge base recently)")
-        context['knowledge_query_results_context'] = "\n".join(query_lines)
-
-        # 2. Recent Messages
-        message_lines = []
-        recent_messages: Optional[List[Dict[str, Any]]] = None
-        for mem in reversed(self.short_term_memory):
-            if mem.get('type') == 'perception':
-                recent_messages = mem.get('content', {}).get('recent_messages')
-                break
-        if recent_messages:
-            if not recent_messages:
-                 message_lines.append("- (No recent messages observed)")
-            else:
-                for msg in reversed(recent_messages[-5:]): # Show last 5
-                    ts = msg.get('timestamp', '?:??')
-                    sender = msg.get('sender_id', '?')
-                    content = msg.get('content', '')
-                    try:
-                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                        else: ts_dt = datetime.fromisoformat(ts)
-                        ts_formatted = ts_dt.strftime('%H:%M:%S')
-                    except ValueError: ts_formatted = ts
-                    message_lines.append(f"- [{ts_formatted}] {sender}: {content}")
-            message_lines.append("\nConsider responding to the latest messages or continuing the discussion.")
-        else:
-             message_lines.append("- (No recent messages observed). You could start a conversation.")
-        context['recent_messages_context'] = "\n".join(message_lines)
-
-        # 3. Recent Knowledge
-        knowledge_lines = []
-        recent_knowledge: Optional[List[Dict[str, Any]]] = None
-        for mem in reversed(self.short_term_memory):
-            if mem.get('type') == 'perception':
-                recent_knowledge = mem.get('content', {}).get('recent_knowledge')
-                break
-        if recent_knowledge:
-            if not recent_knowledge:
-                knowledge_lines.append("- (No recent knowledge items observed)")
-            else:
-                for item in reversed(recent_knowledge[-3:]): # Show last 3
-                    ts = item.get('timestamp', '?:??')
-                    source = item.get('source_agent_id', '?')
-                    content = item.get('content', '')
-                    item_id = item.get('id', '?')[:8]
-                    try:
-                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
-                        else: ts_dt = datetime.fromisoformat(ts)
-                        ts_formatted = ts_dt.strftime('%H:%M:%S')
-                    except ValueError: ts_formatted = ts
-                    knowledge_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
-        else:
-            knowledge_lines.append("- (Could not retrieve recent knowledge from perception memory)")
-        context['recent_knowledge_context'] = "\n".join(knowledge_lines)
-
-        # 4. Internal Activity
-        internal_lines = []
-        internal_mems_added = 0
-        for mem in reversed(self.short_term_memory):
-            mem_type = mem.get('type', 'memory')
-            if mem_type != 'perception' and internal_mems_added < 5:
-                summary = mem.get('summary', '[No summary]')
-                internal_lines.append(f"- ({mem_type}) {summary}")
-                internal_mems_added += 1
-            if internal_mems_added >= 5: break
-        if internal_mems_added == 0:
-            internal_lines.append("- (No recent internal activity)")
-        context['internal_activity_context'] = "\n".join(internal_lines)
-
-        # 5. Active Proposals
-        proposal_lines = []
-        if not active_proposals:
-            proposal_lines.append("- (No active proposals)")
-        else:
-            proposal_lines.append("Review these proposals and consider voting:")
-            for prop in active_proposals:
-                prop_id = prop.get('proposal_id', '?')
-                proposer = prop.get('proposer_agent_id', '?')
-                desc = prop.get('description', '?')
-                prop_type = prop.get('proposal_type', 'general')
-                votes = prop.get('votes', {})
-                my_vote = votes.get(self.agent_id, 'Not Voted')
-                vote_summary = f"Votes: {sum(1 for v in votes.values() if v=='yes')} Yes, {sum(1 for v in votes.values() if v=='no')} No"
-                proposal_lines.append(f"- ID: {prop_id} (Type: {prop_type}) By: {proposer}")
-                proposal_lines.append(f"  Desc: {desc}")
-                proposal_lines.append(f"  Status: {vote_summary} (Your Vote: {my_vote})")
-        context['active_proposals_context'] = "\n".join(proposal_lines)
-
-        # 6. Tick Info & Voting Context
-        current_tick = -1
-        is_forced_vote_tick = False
-        forced_vote_interval = 0
-        for mem in reversed(self.short_term_memory):
-            if mem.get('type') == 'perception':
-                current_tick = mem.get('content', {}).get('current_tick', -1)
-                is_forced_vote_tick = mem.get('content', {}).get('is_forced_vote_tick', False)
-                forced_vote_interval = mem.get('content', {}).get('forced_vote_interval', 0)
-                break
-        context['current_tick'] = str(current_tick)
-
-        voting_context_lines = []
-        if forced_vote_interval > 0:
-            next_forced_vote_tick = ((current_tick // forced_vote_interval) + 1) * forced_vote_interval
-            voting_context_lines.append(f"The next mandatory voting check is at Tick {next_forced_vote_tick}.")
-        context['voting_context_summary'] = "\n".join(voting_context_lines)
-
-
-        # 7. Voting Instructions
-        voting_instruction_lines = []
-        can_vote = False
-        if active_proposals:
-            my_votes = {p.get('proposal_id'): p.get('votes', {}).get(self.agent_id) for p in active_proposals}
-            unvoted_proposals = [p for p in active_proposals if my_votes.get(p.get('proposal_id')) is None]
-            if unvoted_proposals:
-                can_vote = True
-
-        if can_vote:
-            if is_forced_vote_tick:
-                voting_instruction_lines.append("**MANDATORY VOTE CHECK:** It's time for a voting check. You SHOULD prioritize using `VoteAction` on at least one active proposal you haven't voted on (see list above).")
-            else:
-                voting_instruction_lines.append("Remember to participate: Consider using `VoteAction` on active proposals you haven't voted on yet.")
-        elif is_forced_vote_tick:
-             voting_instruction_lines.append("**MANDATORY VOTE CHECK:** No proposals require your vote currently. Proceed with another action.")
-        context['voting_instructions'] = "\n".join(voting_instruction_lines)
-
-        # 8. Action List (REMOVED - Tools are passed via API now)
-        # context['action_list'] = _ACTION_LIST_PROMPT_SECTION
-
-        # TODO: Implement token counting and context window management more robustly
-        # TODO: Consider adding tool descriptions or a summary to the context if helpful for the LLM?
-
-        return context
-
-
-    def act(self, environment: 'Environment') -> 'Action':
-        """
-        Thinks to decide an action, executes it, updates memory, and returns the action.
-        Execution logic for QueryKnowledgeAction is handled here to store results.
-        """
-        # 1. Decide action by thinking (inside try...finally to manage is_generating)
-        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction, ProposeAction, VoteAction # Import actions
-
-        action: Action = NoAction(reason="Initialization before think") # Default action
-        action_summary = "Action execution skipped due to error during think." # Default summary
-
-        # Set generating flag before thinking, ensure it's cleared after
-        self.is_generating = True
-        try:
-            action = self.think() # Think now stores thought details in STM
-
-            # 2. Execute the action and update memory (only if think succeeded)
-            logger.info(f"Agent {self.agent_id} ({self.color}) executing action: {action.__class__.__name__}")
-            action_summary = f"Unknown action: {type(action)}" # Reset summary for execution
-
-            # --- Action Execution Logic (Moved inside the try block) ---
-            if isinstance(action, SendMessageAction):
-                environment.add_message(self.agent_id, action.content)
-                action_summary = f"Sent message: {action.content[:50]}..."
-            elif isinstance(action, PublishKnowledgeAction):
-                knowledge_id = environment.publish_knowledge(self.agent_id, action.content)
-                action_summary = f"Published knowledge ({knowledge_id[:8]}): {action.content[:40]}..."
-            elif isinstance(action, QueryKnowledgeAction):
-                # Execute query and store result directly on the agent for the *next* tick's prompt
-                self.knowledge_query_result = environment.query_knowledge_base(action.query)
-                num_results = len(self.knowledge_query_result)
-                action_summary = f"Queried knowledge base ('{action.query[:40]}...'), found {num_results} results."
-                logger.info(f"Agent {self.agent_id} ({self.color}) {action_summary}") # Log query result count
-            elif isinstance(action, ProposeAction):
-                # Pass the relevant parts of the action to the environment
-                proposal_id = environment.register_proposal(self.agent_id, action.to_dict())
-                action_summary = f"Proposed (ID: {proposal_id}, Type: {action.proposal_type}): {action.description[:40]}..."
-            elif isinstance(action, VoteAction):
-                success = environment.record_vote(self.agent_id, action.proposal_id, action.vote)
-                status = "recorded" if success else "failed"
-                action_summary = f"Vote '{action.vote}' on {action.proposal_id} {status}."
-            elif isinstance(action, NoAction):
-                reason = action.reason if action.reason else "No reason specified."
-                action_summary = f"NoAction. Reason: {reason}"
-                logger.info(f"Agent {self.agent_id} ({self.color}) takes NoAction. Reason: {reason}")
-            else:
-                logger.warning(f"Agent {self.agent_id} ({self.color}) attempted unknown or unhandled action type: {type(action)}")
-                action_summary = f"Action failed (unhandled type {type(action)})"
-            # --- End Action Execution Logic ---
-
-        finally:
-            # Ensure the generating flag is turned off regardless of success/failure
-            self.is_generating = False
-            # Update short-term memory about the action taken (or attempted)
-            # We log the action decided by think(), even if execution failed later (though less likely now)
-            # If think() itself failed, the initial NoAction and error summary are used.
-            self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": action_summary})
-
-        return action # Return the action taken (might be useful for sim loop)
-
-
-    def update_memories(self, new_memory: Dict[str, Any]) -> None:
-        """
-        Updates the agent's short-term memory.
-        Adds a simple summary if not provided. Includes a timestamp.
-        """
-        # Add timestamp to all memories
-        new_memory['timestamp'] = datetime.now(timezone.utc).isoformat()
-
-        # Ensure a summary exists
-        if 'summary' not in new_memory:
-            mem_type = new_memory.get('type', 'memory')
-            content_preview = str(new_memory.get('content', '...'))[:50]
-            new_memory['summary'] = f"{mem_type}: {content_preview}"
-
-        logger.debug(f"Agent {self.agent_id} ({self.color}) updating STM with: {new_memory['summary']}")
-        self.short_term_memory.append(new_memory)
-        # TODO: Implement LTM consolidation/summarization here later
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Serializes the agent's state to a dictionary."""
-        return {
-            "agent_id": self.agent_id,
-            "model_identifier": self.model_identifier,
-            "color": self.color,
-            "directives": self.directives,
-            "short_term_memory": list(self.short_term_memory),
-            "personality_and_motives": self.personality_and_motives,
-            "is_generating": self.is_generating,
-            # knowledge_query_result is transient, not saved
-            # prompts are not saved, they are loaded from file at simulation start
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any], prompts: Dict[str, str]) -> 'Agent':
-        """
-        Deserializes an agent's state from a dictionary.
-        Requires the loaded prompts dictionary to be passed in.
-        """
-        agent = cls(
-            agent_id=data["agent_id"],
-            model_identifier=data["model_identifier"],
-            initial_directives=data["directives"],
-            prompts=prompts, # Pass loaded prompts
-            color=data.get("color", "white")
-        )
-        # Restore short_term_memory deque
-        # Use the default maxlen from the class definition if available
-        default_stm_maxlen = getattr(cls(agent_id="", model_identifier="", initial_directives=[], prompts={}), 'short_term_memory', deque(maxlen=20)).maxlen
-        stm_maxlen = data.get("short_term_memory_maxlen", default_stm_maxlen) # Allow saving maxlen in future?
-
-        loaded_stm_list = data.get("short_term_memory", [])
-        # Ensure loaded memories have timestamps and summaries (add if missing for backward compat)
-        for mem in loaded_stm_list:
-            if 'timestamp' not in mem:
-                mem['timestamp'] = datetime.now(timezone.utc).isoformat() # Or a fixed old date like '1970-01-01T00:00:00+00:00'
-                logger.warning(f"Memory item for agent {agent.agent_id} loaded without timestamp, adding current time.")
-            if 'summary' not in mem: # Add summary if missing
-                 mem_type = mem.get('type', 'memory')
-                 content_preview = str(mem.get('content', '...'))[:50]
-                 mem['summary'] = f"{mem_type}: {content_preview}"
-                 logger.warning(f"STM item for agent {agent.agent_id} loaded without summary, generating one.")
-
-        agent.short_term_memory = deque(loaded_stm_list, maxlen=stm_maxlen)
-        # Load personality, provide default if missing from old saves
-        agent.personality_and_motives = data.get("personality_and_motives", "Personality not found in save file.")
-        # knowledge_query_result is initialized to None, not loaded from state
-        agent.knowledge_query_result = None
-        # is_generating is transient and should always start as False when loaded
-        agent.is_generating = False
-        return agent
+        context['directives_list'] = "\n".join(f"- {
