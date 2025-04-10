@@ -193,10 +193,18 @@ class SimulationUI:
         """Updates the layout with the current simulation state."""
         self.layout["header"].update(Panel(Text("AI Society Simulation", style="bold blue"), style="blue"))
         self.layout["dashboard"].update(self._create_dashboard_panel(simulation_state))
+    def display_tick(self, simulation_state: dict, running: bool = False) -> Layout:
+        """Updates the layout with the current simulation state and run status."""
+        self.layout["header"].update(Panel(Text("AI Society Simulation", style="bold blue"), style="blue"))
+        self.layout["dashboard"].update(self._create_dashboard_panel(simulation_state))
         self.layout["agent_inspector"].update(self._create_agent_panel(simulation_state))
         self.layout["message_log"].update(self._create_message_log_panel(simulation_state))
         self.layout["knowledge_base"].update(self._create_knowledge_base_panel(simulation_state)) # Update KB panel
-        self.layout["footer"].update(Text("Enter: 1 tick | N: N ticks | q: Quit", style="dim")) # Updated footer
+
+        # Update footer with dynamic controls and status
+        status = "[bold green]Running[/]" if running else "[bold yellow]Paused[/]"
+        footer_text = Text.from_markup(f"{status} | [r]un/pause | [Enter/Space] step | [q]uit", style="dim")
+        self.layout["footer"].update(footer_text)
         return self.layout
 
     def display_summary(self, simulation_state: dict):
