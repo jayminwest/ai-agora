@@ -119,7 +119,7 @@ class Agent:
             self.personality_and_motives = "Failed to determine personality due to error."
             self.update_memories({
                 "type": "personality_error",
-                "content": {"prompt": prompt, "response": response_text},
+                "content": {"prompt": prompt, "response": response_message}, # Use response_message here
                 "summary": f"Personality determined: {self.personality_and_motives[:60]}..."
             })
         except Exception as e:
