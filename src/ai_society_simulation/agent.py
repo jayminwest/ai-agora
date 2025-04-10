@@ -184,7 +184,8 @@ class Agent:
         """
         logger.debug(f"Agent {self.agent_id} ({self.color}) starting think cycle using tool calling.")
         from .llm_interface import call_ollama
-        from .actions import Action, NoAction, _get_action_class # Import necessary actions and class getter
+        # Import necessary actions and class getter, including SendMessageAction
+        from .actions import Action, NoAction, SendMessageAction, _get_action_class
 
         # Retrieve the prompt template
         prompt_template = self.prompts.get('agent_thinking') # Prompt now instructs to use tools
