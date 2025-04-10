@@ -72,9 +72,13 @@ tick_summary: "Summary prompt for tick {tick_number}"
              # Simulate proposing a unique role based on the initial ID
              agent_id_match = pytest.importorskip('re').search(r"currently identified as Agent (\S+)", prompt)
              proposed_role = f"MockRole_{agent_id_match.group(1)}" if agent_id_match else "MockRole_default"
-             return Message(role="assistant", content=proposed_role)
+             # Return just the string content for role determination
+             return proposed_role
+        elif "personality" in prompt.lower():
+             # Personality still needs the Message object structure if Agent expects it
+             return Message(role="assistant", content="Mock Personality")
         else:
-            # Default mock response for other calls (like thinking) if needed
+            # Default mock response for other calls (like thinking)
             # For tool calling, return a mock NoAction tool call
             return Message(role="assistant", content=None, tool_calls=[
                 {'function': {'name': 'NoAction', 'arguments': {'reason': 'Mocked LLM call'}}}]
