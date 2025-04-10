@@ -60,7 +60,7 @@ class SimulationUI:
         if forced_vote_interval > 0:
             next_forced_vote_tick = ((tick // forced_vote_interval) + 1) * forced_vote_interval
             is_forced = (tick % forced_vote_interval == 0)
-            dashboard_content.append(f" | Next Vote Check: {next_forced_vote_tick}", style="dim")
+            general_info.append(f" | Next Vote Check: {next_forced_vote_tick}", style="dim") # Append to general_info
             if is_forced:
                  general_info.append(" (NOW!)", style="bold yellow")
         general_info.append(f"\nTotal Agents: {num_agents}\n", style="bold")
@@ -73,11 +73,10 @@ class SimulationUI:
             resource_info.append("(None)", style="dim")
         resource_info.append("\n") # Add spacing
 
-        # Add individual agent stats
         # --- Agent Status ---
         agent_status = Text("\nAgent Status:\n", style="bold underline")
         if not agents:
-            dashboard_content.append("(No agents active)", style="dim")
+            agent_status.append("(No agents active)", style="dim") # Append to agent_status
         else:
             for agent_data in agents:
                 agent_id = agent_data.get('agent_id', 'N/A')
@@ -156,26 +155,26 @@ class SimulationUI:
                     if last_action_type == 'NoAction':
                          reason = action_dict.get('reason')
                          if reason:
-                             last_action_type += f" ({reason[:15]}...)" if len(reason) > 15 else f" ({reason})"
+                             action_detail = f" ({reason[:15]}...)" if len(reason) > 15 else f" ({reason})" # Assign to action_detail
                     elif last_action_type == 'SendMessageAction':
                         content = action_dict.get('content', '')
-                        last_action_type += f" ({content[:15]}...)" if len(content) > 15 else f" ({content})"
+                        action_detail = f" ({content[:15]}...)" if len(content) > 15 else f" ({content})" # Assign to action_detail
                     elif last_action_type == 'PublishKnowledgeAction':
                         content = action_dict.get('content', '')
-                        last_action_type += f" ({content[:15]}...)" if len(content) > 15 else f" ({content})"
+                        action_detail = f" ({content[:15]}...)" if len(content) > 15 else f" ({content})" # Assign to action_detail
                     elif last_action_type == 'QueryKnowledgeAction':
                         query = action_dict.get('query', '')
-                        action_detail = f" ({query[:15]}...)" if len(query) > 15 else f" ({query})"
+                        action_detail = f" ({query[:15]}...)" if len(query) > 15 else f" ({query})" # Assign to action_detail
                     elif last_action_type == 'GatherResourceAction':
                         res = action_dict.get('resource_type', '?')
-                        action_detail = f" ({res})"
+                        action_detail = f" ({res})" # Assign to action_detail
                     elif last_action_type == 'ProposeAction':
                         desc = action_dict.get('description', '')
                         action_detail = f" ({desc[:15]}...)" if len(desc) > 15 else f" ({desc})"
                     elif last_action_type == 'VoteAction':
                         vote = action_dict.get('vote', '?')
                         prop_id = action_dict.get('proposal_id', '?')
-                        action_detail = f" ({vote} on {prop_id})"
+                        action_detail = f" ({vote} on {prop_id})" # Assign to action_detail
 
                     break # Found the latest action
 
