@@ -127,19 +127,44 @@ if __name__ == "__main__":
                     logger.info("Quit command received. Exiting simulation loop.")
                     break
                 elif user_input.strip() == "": # Check for Enter key (empty input)
-                    logger.info(f"Advancing to tick {simulation.tick_count + 1}...")
+                    logger.info(f"Advancing 1 tick to {simulation.tick_count + 1}...")
                     simulation.run_tick()
-
-                    # Optional: Periodic saving (using config setting)
-                    save_interval = config.get('save_interval_ticks', 10)
+                    # Update display after the single tick
+                    live.update(ui.display_tick(simulation.to_dict()))
+                    # Optional: Periodic saving
+                    save_interval = config.get('save_interval_ticks', 0) # Default 0 means no periodic save
                     if save_interval > 0 and simulation.tick_count % save_interval == 0:
                          logger.info(f"Periodic save triggered at tick {simulation.tick_count}.")
                          save_state(simulation.to_dict(), save_filename)
                 else:
-                    # Optional: Could add more commands here later
-                    logger.info(f"Unknown command: '{user_input}'. Press Enter to advance, 'q' to quit.")
-                    # Update the display again to show the message if needed, or just loop
-                    live.update(ui.display_tick(simulation.to_dict()))
+                    # Check if input is a number for multi-tick advance
+                    try:
+                        num_ticks = int(user_input.strip())
+                        if num_ticks > 0:
+                            logger.info(f"Advancing {num_ticks} ticks from {simulation.tick_count + 1}...")
+                            start_tick = simulation.tick_count
+                            for i in range(num_ticks):
+                                current_tick_num = start_tick + i + 1
+                                logger.info(f"Running tick {current_tick_num}/{start_tick + num_ticks}...")
+                                simulation.run_tick()
+                                # Optional: Periodic saving during multi-tick run
+                                save_interval = config.get('save_interval_ticks', 0)
+                                if save_interval > 0 and simulation.tick_count % save_interval == 0:
+                                     logger.info(f"Periodic save triggered at tick {simulation.tick_count}.")
+                                     save_state(simulation.to_dict(), save_filename)
+                                # Check for KeyboardInterrupt during long runs (optional but good)
+                                # This requires a different input method or threading,
+                                # skipping for now to keep it simple. input() blocks.
+                            logger.info(f"Finished advancing {num_ticks} ticks. Current tick: {simulation.tick_count}")
+                            # Update display once after all ticks are done
+                            live.update(ui.display_tick(simulation.to_dict()))
+                        else:
+                            logger.warning(f"Please enter a positive number of ticks.")
+                            live.update(ui.display_tick(simulation.to_dict())) # Refresh display
+                    except ValueError:
+                        # Optional: Could add more commands here later
+                        logger.info(f"Unknown command: '{user_input}'. Enter: 1 tick, N: N ticks, q: Quit.")
+                        live.update(ui.display_tick(simulation.to_dict())) # Refresh display
 
 
         logger.info(f"Interactive simulation ended at tick {simulation.tick_count}.")

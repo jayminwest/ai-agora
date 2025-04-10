@@ -2,6 +2,7 @@
 
 import logging
 from typing import Dict, Any, List
+from datetime import datetime # Import datetime
 
 from rich.layout import Layout
 from rich.panel import Panel
@@ -65,8 +66,8 @@ class SimulationUI:
             color = agent_data.get('color', 'white')
             model = agent_data.get('model_identifier', 'N/A')
             mem_count = str(len(agent_data.get('memory', [])))
-            # Use rich markup for color
-            table.add_row(f"{agent_id}", f"{color}", model, mem_count)
+            # Use rich markup for color in the ID column for visibility
+            table.add_row(f"[{color}]{agent_id}[/]", f"{color}", model, mem_count)
 
         return Panel(table, title="Agent Inspector")
 
@@ -77,25 +78,37 @@ class SimulationUI:
         agent_colors = {agent['agent_id']: agent.get('color', 'grey') for agent in sim_state.get('agents', [])}
 
         messages = sim_state.get('environment', {}).get('message_log', [])
-        # Display last N messages (e.g., 10)
-        display_messages = messages[-10:] # Get the last 10 messages
+        # Display last N messages (e.g., 15)
+        display_messages = messages[-15:] # Get the last 15 messages
 
         log_texts = []
         for msg in display_messages:
-            timestamp = msg.get('timestamp', '')
+            timestamp_str = msg.get('timestamp', '')
             sender_id = msg.get('sender_id', '?')
             content = msg.get('content', '')
             sender_color = agent_colors.get(sender_id, 'grey') # Default to grey if agent not found
 
+            # Format timestamp for display (e.g., HH:MM:SS)
+            try:
+                # Attempt to parse the ISO timestamp string (handle Z for UTC)
+                if timestamp_str.endswith('Z'):
+                    ts_dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                else:
+                    ts_dt = datetime.fromisoformat(timestamp_str)
+                # Format it - you can change the format string as needed
+                ts_formatted = ts_dt.strftime('%H:%M:%S')
+            except (ValueError, TypeError):
+                ts_formatted = "??:??:??" # Fallback if parsing fails
+
             # Create a Rich Text object for the line
             line = Text()
-            line.append(f"[{timestamp}] ", style="dim")
+            line.append(f"[{ts_formatted}] ", style="dim") # Display formatted time
             line.append(f"{sender_id}", style=sender_color)
             line.append(f": {content}")
             log_texts.append(line)
 
         # Combine the Text objects into a single Text object with newlines
-        log_content = Text("\n").join(log_texts)
+        log_content = Text("\n").join(log_texts) if log_texts else Text("(No messages yet)", style="dim")
         return Panel(log_content, title="Recent Messages")
 
     def display_tick(self, simulation_state: dict) -> Layout:
@@ -105,7 +118,7 @@ class SimulationUI:
         self.layout["agent_inspector"].update(self._create_agent_panel(simulation_state))
         self.layout["message_log"].update(self._create_message_log_panel(simulation_state))
         self.layout["knowledge_base"].update(Panel("[Placeholder]", title="Knowledge Base")) # Placeholder
-        self.layout["footer"].update(Text("Press Enter to advance tick, 'q' then Enter to quit.", style="dim"))
+        self.layout["footer"].update(Text("Enter: 1 tick | N: N ticks | q: Quit", style="dim")) # Updated footer
         return self.layout
 
     def display_summary(self, simulation_state: dict):
