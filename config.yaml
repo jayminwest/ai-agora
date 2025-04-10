@@ -2,7 +2,7 @@ simulation_name: mvp_test
 initial_agents: 4
 model_tiers:
   - mistral:7b-instruct # Example: A slightly larger model
-  - phi3:mini           # Example: A smaller, faster model
+  - phi4:latest          
 # Add other keys with placeholder values or comments if needed for structure
 agent_directives_pool:
   - "Collaborate with others to establish shared goals for our society."
@@ -23,4 +23,4 @@ upgrade_threshold: 100 # Placeholder
 tick_delay_ms: 100 # Placeholder
 save_interval_ticks: 10 # Placeholder
 log_level: INFO # Placeholder
-forced_vote_interval: 0 # Ticks between forced voting prompts (0 to disable)
+forced_vote_interval: 5 # Ticks between forced voting prompts (0 to disable)
