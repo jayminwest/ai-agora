@@ -28,11 +28,12 @@ class Agent:
         """
         self.agent_id: str = agent_id
         self.model_identifier: str = model_identifier
-        self.color: str = color # Assign color
+        self.color: str = color
         self.directives: List[str] = initial_directives
-        # Simple list-based memory for MVP
-        self.memory: Deque[Dict[str, Any]] = deque(maxlen=100) # Placeholder size
-        # self.current_thought: Dict[str, Any] = {} # Replaced by action system
+        # More structured memory
+        self.short_term_memory: Deque[Dict[str, Any]] = deque(maxlen=20) # Recent events
+        self.knowledge_query_result: Optional[List[Dict[str, Any]]] = None # Result from last KB query
+        # self.long_term_memory: List[str] = [] # Placeholder for future LTM/Summaries
         logger.info(f"Agent {self.agent_id} ({self.color}) initialized with model {self.model_identifier}.")
 
     def perceive(self, environment_state: Dict[str, Any]) -> None:
@@ -43,13 +44,18 @@ class Agent:
         logger.debug(f"Agent {self.agent_id} ({self.color}) perceiving environment.")
         # Store perception in memory, including recent messages
         # Store perception in memory, including recent messages and knowledge
+        # Clear previous query result before new perception
+        self.knowledge_query_result = None
+
         num_msgs = len(environment_state.get('recent_messages', []))
         num_knowledge = len(environment_state.get('recent_knowledge', []))
+        perception_summary = f"Perceived environment: {num_msgs} messages, {num_knowledge} knowledge items."
         self.update_memories({
             "type": "perception",
             "content": environment_state,
-            "summary": f"Perceived environment: {num_msgs} messages, {num_knowledge} knowledge items."
+            "summary": perception_summary
         })
+        logger.debug(f"Agent {self.agent_id} ({self.color}): {perception_summary}")
 
 
     def think(self) -> 'Action':
@@ -60,7 +66,7 @@ class Agent:
         logger.debug(f"Agent {self.agent_id} ({self.color}) starting think cycle.")
         from .llm_interface import call_ollama # Avoid circular import at module level
         # Import necessary actions
-        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction
+        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction
 
         prompt = self._build_prompt()
         logger.debug(f"Agent {self.agent_id} ({self.color}) sending prompt to LLM: \n{prompt}")
@@ -118,10 +124,29 @@ class Agent:
             "\n--- Recent Activity & Context ---"
         ]
 
-        # 1. Add recent messages from perception
+        # 1. Add results from the last knowledge query, if any
+        if self.knowledge_query_result is not None: # Check if None or empty list
+            prompt_lines.append("\nResults from your last Knowledge Base query:")
+            if not self.knowledge_query_result:
+                prompt_lines.append("- Your query returned no results.")
+            else:
+                for item in self.knowledge_query_result: # Already newest first from query function
+                    ts = item.get('timestamp', '?:??')
+                    source = item.get('source_agent_id', '?')
+                    content = item.get('content', '')
+                    item_id = item.get('id', '?')[:8]
+                    try:
+                        if ts.endswith('Z'): ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        else: ts_dt = datetime.fromisoformat(ts)
+                        ts_formatted = ts_dt.strftime('%H:%M:%S')
+                    except ValueError: ts_formatted = ts
+                    prompt_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
+            prompt_lines.append("") # Add spacing
+
+        # 2. Add recent messages from perception (from STM)
         recent_messages: Optional[List[Dict[str, Any]]] = None
-        # Find the latest perception in memory
-        for mem in reversed(self.memory):
+        # Find the latest perception in short_term_memory
+        for mem in reversed(self.short_term_memory):
             if mem.get('type') == 'perception':
                 recent_messages = mem.get('content', {}).get('recent_messages')
                 break # Found the latest perception
@@ -150,12 +175,12 @@ class Agent:
             prompt_lines.append("\nConsider responding to the latest messages or continuing the discussion.") # Added suggestion
         else:
              prompt_lines.append("\nRecent messages in the environment:")
-             prompt_lines.append("- (No recent messages observed). You could start a conversation.") # Added suggestion
+             prompt_lines.append("- (No recent messages observed). You could start a conversation.")
 
-        # 1b. Add recent knowledge from perception
+        # 3. Add recent knowledge from perception (from STM)
         recent_knowledge: Optional[List[Dict[str, Any]]] = None
-        # Find the latest perception in memory again (or reuse if stored)
-        for mem in reversed(self.memory):
+        # Find the latest perception in short_term_memory again (or reuse if stored)
+        for mem in reversed(self.short_term_memory):
             if mem.get('type') == 'perception':
                 recent_knowledge = mem.get('content', {}).get('recent_knowledge')
                 break # Found the latest perception
@@ -182,31 +207,29 @@ class Agent:
                         ts_formatted = ts # Keep original if format fails
                     prompt_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
         else:
-            prompt_lines.append("- (Could not retrieve recent knowledge from memory)")
+            prompt_lines.append("- (Could not retrieve recent knowledge from perception memory)")
 
 
-        # 2. Add last few memories (actions, thoughts)
-        prompt_lines.append("\nYour recent internal activity (newest first):")
-        mem_count = 0
+        # 4. Add last few short-term memories (actions, thoughts, etc.)
+        prompt_lines.append("\nYour recent internal activity (newest first, excluding perceptions):")
         internal_mems_added = 0
-        for mem in reversed(self.memory):
+        for mem in reversed(self.short_term_memory):
             mem_type = mem.get('type', 'memory')
-            # Exclude perceptions here as messages are handled above
-            if mem_type != 'perception' and internal_mems_added < 3: # Limit internal memories shown
+            # Exclude perceptions here as environment state is handled above
+            if mem_type != 'perception' and internal_mems_added < 5: # Show slightly more internal context
                 summary = mem.get('summary', '[No summary]')
                 prompt_lines.append(f"- ({mem_type}) {summary}")
                 internal_mems_added += 1
-            mem_count += 1
-            if internal_mems_added >= 3: # Stop after adding enough internal memories
+            if internal_mems_added >= 5: # Stop after adding enough internal memories
                 break
         if internal_mems_added == 0:
             prompt_lines.append("- (No recent internal activity)")
 
 
-        # 3. Action Instructions (Modify instructions)
+        # 5. Action Instructions
         prompt_lines.extend([
             "\n--- Your Task ---",
-            "Based on your directives, the recent messages, and your internal activity, decide your next single action.",
+            "Based on your directives, the context provided above (including any knowledge query results), decide your next single action.",
             "Your primary goal is to contribute to the conversation.", # Reinforce goal
             "If someone asked a question, try to answer it. If someone made a point, consider responding to it.", # More specific guidance
             "If the conversation is stalled, consider asking a question or introducing a relevant topic.", # More specific guidance
@@ -215,10 +238,13 @@ class Agent:
             "1. Send a message to the environment to continue or start a conversation:",
             '   {"_action_type": "SendMessageAction", "content": "Your conversational message here."}',
             "",
-            "2. Publish a piece of knowledge to the shared knowledge base (a factual statement or summary):",
+            "2. Publish a piece of knowledge to the shared knowledge base (a factual statement or summary derived from conversation or thought):",
             '   {"_action_type": "PublishKnowledgeAction", "content": "Your factual knowledge statement here."}',
             "",
-            "3. Do nothing (if you have nothing relevant to add right now):",
+            "3. Query the shared knowledge base to find information relevant to the current discussion or your goals:",
+            '   {"_action_type": "QueryKnowledgeAction", "query": "Your specific search query here."}',
+            "",
+            "4. Do nothing (if you have nothing relevant to add or query right now):",
             '   {"_action_type": "NoAction", "reason": "Optional concise reason for doing nothing."}',
             "",
             "Your JSON response:"
@@ -229,40 +255,48 @@ class Agent:
         return "\n".join(prompt_lines)
 
 
-    def act(self, environment: 'Environment') -> None:
+    def act(self, environment: 'Environment') -> 'Action':
         """
-        Executes the action decided during the 'think' phase.
+        Thinks to decide an action, executes it, updates memory, and returns the action.
+        Execution logic for QueryKnowledgeAction is handled here to store results.
         """
         # 1. Decide action by thinking
-        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction # Import actions
-        action = self.think() # Think now stores thought details in memory
+        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction # Import actions
+        action = self.think() # Think now stores thought details in STM
 
-        # 2. Execute the action
+        # 2. Execute the action and update memory
         logger.info(f"Agent {self.agent_id} ({self.color}) executing action: {action.__class__.__name__}")
+        action_summary = f"Unknown action: {type(action)}" # Default summary
+
         if isinstance(action, SendMessageAction):
             environment.add_message(self.agent_id, action.content)
-            # Memory update for action taken
-            self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": f"Sent message: {action.content[:50]}..."})
+            action_summary = f"Sent message: {action.content[:50]}..."
         elif isinstance(action, PublishKnowledgeAction):
             knowledge_id = environment.publish_knowledge(self.agent_id, action.content)
-            # Memory update for action taken
-            self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": f"Published knowledge ({knowledge_id[:8]}): {action.content[:40]}..."})
+            action_summary = f"Published knowledge ({knowledge_id[:8]}): {action.content[:40]}..."
+        elif isinstance(action, QueryKnowledgeAction):
+            # Execute query and store result directly on the agent for the *next* tick's prompt
+            self.knowledge_query_result = environment.query_knowledge_base(action.query)
+            num_results = len(self.knowledge_query_result)
+            action_summary = f"Queried knowledge base ('{action.query[:40]}...'), found {num_results} results."
+            logger.info(f"Agent {self.agent_id} ({self.color}) {action_summary}") # Log query result count
         elif isinstance(action, NoAction):
-            log_msg = f"Agent {self.agent_id} ({self.color}) takes NoAction."
             reason = action.reason if action.reason else "No reason specified."
-            if action.reason:
-                log_msg += f" Reason: {reason}"
-            logger.info(log_msg)
-            # Memory update for action taken
-            self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": f"NoAction. Reason: {reason}"})
+            action_summary = f"NoAction. Reason: {reason}"
+            logger.info(f"Agent {self.agent_id} ({self.color}) takes NoAction. Reason: {reason}")
         else:
             logger.warning(f"Agent {self.agent_id} ({self.color}) attempted unknown or unhandled action type: {type(action)}")
-            self.update_memories({"type": "action_failed", "detail": f"Unhandled action type {type(action)}", "summary": "Action failed (unhandled type)"})
+            action_summary = f"Action failed (unhandled type {type(action)})"
+
+        # Update short-term memory about the action taken
+        self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": action_summary})
+
+        return action # Return the action taken (might be useful for sim loop)
 
 
     def update_memories(self, new_memory: Dict[str, Any]) -> None:
         """
-        Updates the agent's memory. For MVP, just appends to the deque.
+        Updates the agent's short-term memory.
         Adds a simple summary if not provided. Includes a timestamp.
         """
         # Add timestamp to all memories
@@ -274,8 +308,9 @@ class Agent:
             content_preview = str(new_memory.get('content', '...'))[:50]
             new_memory['summary'] = f"{mem_type}: {content_preview}"
 
-        logger.debug(f"Agent {self.agent_id} ({self.color}) updating memories with: {new_memory['summary']}")
-        self.memory.append(new_memory)
+        logger.debug(f"Agent {self.agent_id} ({self.color}) updating STM with: {new_memory['summary']}")
+        self.short_term_memory.append(new_memory)
+        # TODO: Implement LTM consolidation/summarization here later
 
     def to_dict(self) -> Dict[str, Any]:
         """Serializes the agent's state to a dictionary."""
@@ -284,7 +319,8 @@ class Agent:
             "model_identifier": self.model_identifier,
             "color": self.color,
             "directives": self.directives,
-            "memory": list(self.memory), # Convert deque to list for JSON
+            "short_term_memory": list(self.short_term_memory), # Convert deque to list for JSON
+            # knowledge_query_result is transient, not saved
         }
 
     @classmethod
@@ -294,23 +330,26 @@ class Agent:
             agent_id=data["agent_id"],
             model_identifier=data["model_identifier"],
             initial_directives=data["directives"],
-            color=data.get("color", "white")
+            color=data.get("color", "white") # Load color or default
         )
-        # Restore memory deque
-        memory_maxlen = getattr(cls, 'memory', deque(maxlen=100)).maxlen
-        # Ensure loaded memories have timestamps (add placeholder if missing for backward compat)
-        loaded_memory_list = data.get("memory", [])
-        for mem in loaded_memory_list:
+        # Restore short_term_memory deque
+        # Use the default maxlen from the class definition if available
+        default_stm_maxlen = getattr(cls(agent_id="", model_identifier="", initial_directives=[]), 'short_term_memory', deque(maxlen=20)).maxlen
+        stm_maxlen = data.get("short_term_memory_maxlen", default_stm_maxlen) # Allow saving maxlen in future?
+
+        loaded_stm_list = data.get("short_term_memory", [])
+        # Ensure loaded memories have timestamps and summaries (add if missing for backward compat)
+        for mem in loaded_stm_list:
             if 'timestamp' not in mem:
-                # Add a placeholder timestamp if missing from old save files
                 mem['timestamp'] = datetime.now(timezone.utc).isoformat() # Or a fixed old date like '1970-01-01T00:00:00+00:00'
                 logger.warning(f"Memory item for agent {agent.agent_id} loaded without timestamp, adding current time.")
             if 'summary' not in mem: # Add summary if missing
                  mem_type = mem.get('type', 'memory')
                  content_preview = str(mem.get('content', '...'))[:50]
                  mem['summary'] = f"{mem_type}: {content_preview}"
-                 logger.warning(f"Memory item for agent {agent.agent_id} loaded without summary, generating one.")
+                 logger.warning(f"STM item for agent {agent.agent_id} loaded without summary, generating one.")
 
-
-        agent.memory = deque(loaded_memory_list, maxlen=memory_maxlen)
+        agent.short_term_memory = deque(loaded_stm_list, maxlen=stm_maxlen)
+        # knowledge_query_result is initialized to None, not loaded from state
+        agent.knowledge_query_result = None
         return agent

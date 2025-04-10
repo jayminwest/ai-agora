@@ -43,6 +43,31 @@ class Environment:
         logger.info(f"Knowledge item {knowledge_id} published by {agent_id} at {timestamp}: {content[:50]}...")
         return knowledge_id # Return the ID of the new item
 
+    def query_knowledge_base(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
+        """
+        Performs a simple case-insensitive keyword search on the knowledge base content.
+        Returns a list of matching knowledge items (most recent first).
+        """
+        query_lower = query.lower()
+        # Simple search: check if query words are in the content
+        # More sophisticated search (e.g., TF-IDF, embeddings) could be added later
+        results = []
+        keywords = query_lower.split()
+        if not keywords:
+            return []
+
+        # Iterate in reverse to find most recent matches first
+        for item in reversed(self.shared_knowledge_base):
+            content_lower = item.get('content', '').lower()
+            # Check if all keywords are present in the content
+            if all(keyword in content_lower for keyword in keywords):
+                results.append(item)
+                if len(results) >= max_results:
+                    break # Stop once we have enough results
+
+        logger.debug(f"Knowledge base query '{query}' found {len(results)} results.")
+        return results # Results are already newest first due to reversed iteration
+
     def get_recent_knowledge(self, count: int = 5) -> List[Dict[str, Any]]:
         """Returns the most recent knowledge items."""
         return self.shared_knowledge_base[-count:]
