@@ -49,25 +49,53 @@ class SimulationUI:
         return Panel(content, title="Dashboard")
 
     def _create_agent_panel(self, sim_state: Dict[str, Any]) -> Panel:
-        """Creates the agent inspector panel (shows first agent for now)."""
+        """Creates the agent inspector panel displaying a table of agents."""
         agents = sim_state.get('agents', [])
         if not agents:
             return Panel("No agents found.", title="Agent Inspector")
 
-        # Attempt to get agent data correctly, assuming agents are dicts from to_dict()
-        agent_data = agents[0] # Display first agent
-        content = f"ID: {agent_data.get('agent_id', 'N/A')}\n"
-        content += f"Model: {agent_data.get('model_identifier', 'N/A')}\n"
-        content += f"Memory (Count): {len(agent_data.get('memory', []))}"
-        # Add more agent details here later (directives, influence, etc.)
-        return Panel(content, title=f"Agent Inspector: {agent_data.get('agent_id', 'N/A')}")
+        table = Table(title="Agents", show_header=True, header_style="bold magenta", expand=True)
+        table.add_column("ID", style="dim", width=12, no_wrap=True)
+        table.add_column("Color", width=15, no_wrap=True)
+        table.add_column("Model", no_wrap=True)
+        table.add_column("Mem Cnt", justify="right", no_wrap=True)
+
+        for agent_data in agents:
+            agent_id = agent_data.get('agent_id', 'N/A')
+            color = agent_data.get('color', 'white')
+            model = agent_data.get('model_identifier', 'N/A')
+            mem_count = str(len(agent_data.get('memory', [])))
+            # Use rich markup for color
+            table.add_row(f"[{color}]{agent_id}[/]", f"[{color}]{color}[/]", model, mem_count)
+
+        return Panel(table, title="Agent Inspector")
 
 
     def _create_message_log_panel(self, sim_state: Dict[str, Any]) -> Panel:
         """Creates the message log panel."""
+        # Create a quick lookup for agent colors
+        agent_colors = {agent['agent_id']: agent.get('color', 'grey') for agent in sim_state.get('agents', [])}
+
         messages = sim_state.get('environment', {}).get('message_log', [])
-        # Display last 5 messages for brevity
-        log_content = "\n".join([f"[{msg.get('timestamp', '')}] {msg.get('sender_id', '?')}: {msg.get('content', '')}" for msg in messages[-5:]])
+        # Display last N messages (e.g., 10)
+        display_messages = messages[-10:] # Get the last 10 messages
+
+        log_texts = []
+        for msg in display_messages:
+            timestamp = msg.get('timestamp', '')
+            sender_id = msg.get('sender_id', '?')
+            content = msg.get('content', '')
+            sender_color = agent_colors.get(sender_id, 'grey') # Default to grey if agent not found
+
+            # Create a Rich Text object for the line
+            line = Text()
+            line.append(f"[{timestamp}] ", style="dim")
+            line.append(f"[{sender_color}]{sender_id}[/]", style=sender_color)
+            line.append(f": {content}")
+            log_texts.append(line)
+
+        # Combine the Text objects into a single Text object with newlines
+        log_content = Text("\n").join(log_texts)
         return Panel(log_content, title="Recent Messages")
 
     def display_tick(self, simulation_state: dict) -> Layout:
