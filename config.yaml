@@ -36,3 +36,14 @@ prompts_file: prompts.yaml # Path to the YAML file containing LLM prompt templat
 # Tick Summarization Configuration
 enable_tick_summary: true # Set to true to enable LLM-based tick summaries
 summarization_model: "phi4:latest" # Model to use for generating summaries (e.g., a fast model)
+
+# Societal Challenges Configuration
+challenge_enabled: true # Toggle the challenge feature on/off
+challenge_probability: 0.1 # Probability of generating a new challenge on a tick (0.0-1.0)
+challenge_interval_ticks: 20 # Minimum number of ticks between challenge generations
+max_concurrent_challenges: 3 # Maximum number of active challenges at once
+challenge_difficulty_distribution:
+  easy: 0.5    # 50% chance for easy challenges
+  medium: 0.3  # 30% chance for medium challenges
+  hard: 0.2    # 20% chance for hard challenges
+challenge_model: "phi4:latest" # Model to use for challenge generation (defaults to same as summarization model)
