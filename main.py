@@ -8,10 +8,10 @@ import sys
 
 # Ensure the src directory is in the Python path
 # This allows importing modules like `ai_society_simulation.simulation`
-project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = os.path.dirname(os.path.abspath(__file__)) # Get the directory containing main.py
 src_path = os.path.join(project_root, 'src')
 if src_path not in sys.path:
-    sys.path.insert(0, src_path)
+    sys.path.insert(0, src_path) # Add src directory to the beginning of the path
 
 from ai_society_simulation.simulation import Simulation
 from ai_society_simulation.persistence import save_state, load_state
@@ -115,11 +115,3 @@ if __name__ == "__main__":
     save_state(simulation.to_dict(), save_filename)
 
     logger.info("--- AI Society Simulation MVP End ---")
-import sys
-import os
-
-# Add the src directory to the Python path
-project_root = os.path.dirname(os.path.abspath(__file__))
-src_path = os.path.join(project_root, 'src')
-if src_path not in sys.path:
-    sys.path.insert(0, src_path)
