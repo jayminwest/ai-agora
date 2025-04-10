@@ -256,10 +256,19 @@ class SimulationUI:
         """Creates the proposals panel."""
         agent_colors = {agent['agent_id']: agent.get('color', 'grey') for agent in sim_state.get('agents', [])}
         proposals = sim_state.get('environment', {}).get('proposals', [])
-        active_proposals = [p for p in proposals if p.get('status') == 'active']
+        all_active_proposals = [p for p in proposals if p.get('status') == 'active']
+        num_active = len(all_active_proposals)
 
-        if not active_proposals:
-            return Panel("(No active proposals)", title="Active Proposals")
+        # Limit the number of proposals displayed (e.g., last 10)
+        display_limit = 10
+        display_proposals = all_active_proposals[-display_limit:] # Get the last N proposals
+
+        title = "Active Proposals"
+        if num_active > display_limit:
+            title += f" (Showing last {display_limit} of {num_active})"
+        elif num_active == 0:
+             return Panel("(No active proposals)", title=title)
+
 
         table = Table(title=None, show_header=True, header_style="bold cyan", expand=True, box=None, padding=(0,1))
         table.add_column("ID", style="dim", width=10)
@@ -268,7 +277,8 @@ class SimulationUI:
         table.add_column("Description", min_width=20, ratio=2)
         table.add_column("Votes (Y/N)", justify="center", width=10)
 
-        for prop in active_proposals:
+        # Iterate over the limited list
+        for prop in display_proposals:
             prop_id = prop.get('proposal_id', '?')
             proposer_id = prop.get('proposer_agent_id', '?')
             prop_type = prop.get('proposal_type', '?')
@@ -286,7 +296,8 @@ class SimulationUI:
                 f"{yes_votes}/{no_votes}"
             )
 
-        return Panel(table, title="Active Proposals")
+        # Use the potentially modified title
+        return Panel(table, title=title)
 
     def _create_summary_panel(self, sim_state: Dict[str, Any]) -> Panel:
         """Creates the tick summary panel."""
