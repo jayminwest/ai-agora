@@ -359,10 +359,6 @@ class Agent:
 
         prompt_lines.extend([
             "", # Add spacing
-            # No message needed if not forced tick and no proposals to vote on.
-
-        prompt_lines.extend([
-            "", # Add spacing
             "Choose ONE action and respond ONLY with the corresponding JSON object (no explanations, preamble, or markdown formatting):",
             "",
             "1. Discuss / Converse:",
