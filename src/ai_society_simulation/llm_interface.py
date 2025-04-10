@@ -5,7 +5,8 @@ import json
 from typing import Callable, Optional, Any, Dict, List
 import ollama
 import dataclasses
-from ollama import Message # Import the Message class
+from ollama import Message
+from ollama._types import ChatResponse # Import ChatResponse
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +72,9 @@ def call_ollama(
         logger.debug(f"Ollama raw response type: {type(response)}")
         logger.debug(f"Ollama raw response content: {response}")
 
-        # Check if the response structure contains the 'message' key and it's a Message object
-        if isinstance(response, dict) and 'message' in response and isinstance(response['message'], Message):
-            message_obj: Message = response['message']
+        # Check if the response is a ChatResponse object and has a message attribute of type Message
+        if isinstance(response, ChatResponse) and hasattr(response, 'message') and isinstance(response.message, Message):
+            message_obj: Message = response.message # Access the message attribute
             # Log tool calls or content if present
             if message_obj.tool_calls:
                 logger.info(f"Ollama response contains tool calls: {message_obj.tool_calls}")
