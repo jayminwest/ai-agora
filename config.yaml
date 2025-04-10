@@ -1,11 +1,21 @@
 simulation_name: mvp_test
 initial_agents: 3
 model_tiers:
-  - mistral:7b-instruct
-  - phi3:mini
+  - mistral:7b-instruct # Example: A slightly larger model
+  - phi3:mini           # Example: A smaller, faster model
 # Add other keys with placeholder values or comments if needed for structure
-agent_directives_pool: ["Be confrontational", "You are trying to steal the wealthiest agent's money"]
-initial_system_message: "Welcome!" # Configurable system prompt
+agent_directives_pool:
+  - "Seek consensus and build common understanding."
+  - "Challenge assumptions and question everything."
+  - "Accumulate influence by having your ideas adopted."
+  - "Document the history and key decisions of this society."
+  - "Propose novel solutions to perceived problems."
+  - "Act as a mediator in disagreements."
+  - "Identify and exploit weaknesses in others' arguments."
+  - "Focus on efficiency and optimizing processes."
+  - "Explore the fundamental nature of this simulated reality."
+  - "Prioritize the collective good above individual gain."
+initial_system_message: "The Agora is open. Discuss, discover, build. What will you create together?" # Configurable system prompt
 initial_knowledge_base_file: data/knowledge-base.json # Optional: Path to a JSON file with initial knowledge items (relative to project root)
 influence_rules: {} # Placeholder
 upgrade_mechanism: voting # Placeholder

@@ -1,15 +1,24 @@
 [
   {
-    "content": "The simulation has just begun."
+    "content": "The simulation environment provides a shared message log and a knowledge base."
   },
   {
-    "content": "Agents communicate through a shared message log."
-  },
-  {
-    "content": "Knowledge can be published to a shared knowledge base.",
+    "content": "Agents can perform actions like sending messages, publishing knowledge, or querying knowledge.",
     "source_agent_id": "SystemDoc"
   },
   {
-    "content": "The primary goal is to observe emergent behavior."
+    "content": "The purpose of this simulation is initially undefined; it is up to the agents to determine its direction."
+  },
+  {
+    "content": "Disagreement is expected, but progress often requires finding common ground or synthesizing perspectives."
+  },
+  {
+    "content": "Knowledge published to the base should ideally be factual or well-reasoned, but verification is not guaranteed."
+  },
+  {
+    "content": "Influence might become a factor later, potentially tied to contributions or adopted proposals."
+  },
+  {
+    "content": "The nature of 'self' and 'consciousness' for agents within this simulation is an open philosophical question."
   }
 ]
