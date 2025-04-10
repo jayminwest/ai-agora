@@ -312,25 +312,27 @@ class Agent:
             logger.info(f"Agent {self.agent_id} ({self.color}) executing action: {action.__class__.__name__}")
             action_summary = f"Unknown action: {type(action)}" # Reset summary for execution
 
-        if isinstance(action, SendMessageAction):
-            environment.add_message(self.agent_id, action.content)
-            action_summary = f"Sent message: {action.content[:50]}..."
-        elif isinstance(action, PublishKnowledgeAction):
-            knowledge_id = environment.publish_knowledge(self.agent_id, action.content)
-            action_summary = f"Published knowledge ({knowledge_id[:8]}): {action.content[:40]}..."
-        elif isinstance(action, QueryKnowledgeAction):
-            # Execute query and store result directly on the agent for the *next* tick's prompt
-            self.knowledge_query_result = environment.query_knowledge_base(action.query)
-            num_results = len(self.knowledge_query_result)
-            action_summary = f"Queried knowledge base ('{action.query[:40]}...'), found {num_results} results."
-            logger.info(f"Agent {self.agent_id} ({self.color}) {action_summary}") # Log query result count
-        elif isinstance(action, NoAction):
-            reason = action.reason if action.reason else "No reason specified."
-            action_summary = f"NoAction. Reason: {reason}"
-            logger.info(f"Agent {self.agent_id} ({self.color}) takes NoAction. Reason: {reason}")
-        else:
-            logger.warning(f"Agent {self.agent_id} ({self.color}) attempted unknown or unhandled action type: {type(action)}")
-            action_summary = f"Action failed (unhandled type {type(action)})"
+            # --- Action Execution Logic (Moved inside the try block) ---
+            if isinstance(action, SendMessageAction):
+                environment.add_message(self.agent_id, action.content)
+                action_summary = f"Sent message: {action.content[:50]}..."
+            elif isinstance(action, PublishKnowledgeAction):
+                knowledge_id = environment.publish_knowledge(self.agent_id, action.content)
+                action_summary = f"Published knowledge ({knowledge_id[:8]}): {action.content[:40]}..."
+            elif isinstance(action, QueryKnowledgeAction):
+                # Execute query and store result directly on the agent for the *next* tick's prompt
+                self.knowledge_query_result = environment.query_knowledge_base(action.query)
+                num_results = len(self.knowledge_query_result)
+                action_summary = f"Queried knowledge base ('{action.query[:40]}...'), found {num_results} results."
+                logger.info(f"Agent {self.agent_id} ({self.color}) {action_summary}") # Log query result count
+            elif isinstance(action, NoAction):
+                reason = action.reason if action.reason else "No reason specified."
+                action_summary = f"NoAction. Reason: {reason}"
+                logger.info(f"Agent {self.agent_id} ({self.color}) takes NoAction. Reason: {reason}")
+            else:
+                logger.warning(f"Agent {self.agent_id} ({self.color}) attempted unknown or unhandled action type: {type(action)}")
+                action_summary = f"Action failed (unhandled type {type(action)})"
+            # --- End Action Execution Logic ---
 
         finally:
             # Ensure the generating flag is turned off regardless of success/failure
