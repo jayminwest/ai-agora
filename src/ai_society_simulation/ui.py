@@ -82,12 +82,12 @@ class SimulationUI:
                             last_action_type = "QueryKnow"
                         break # Found the latest action
 
-                # Append agent line with color and generating status
-                dashboard_content.append(f"- ", style="dim")
-                dashboard_content.append(f"{agent_id}", style=f"bold {color}")
+                # Append agent line with color and generating status using styles
+                dashboard_content.append("- ", style="dim")
+                dashboard_content.append(agent_id, style=f"bold {color}")
                 dashboard_content.append(f": STM={stm_len}, LastAct={last_action_type}")
                 if is_generating:
-                    dashboard_content.append(" [dim](thinking...)[/]", style="italic") # Add indicator
+                    dashboard_content.append(" (thinking...)", style="dim italic") # Add indicator using style
                 dashboard_content.append("\n") # Add newline
 
 
