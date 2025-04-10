@@ -86,14 +86,21 @@ class Agent:
 
         num_msgs = len(environment_state.get('recent_messages', []))
         num_knowledge = len(environment_state.get('recent_knowledge', []))
-        num_proposals = len(environment_state.get('active_proposals', [])) # Get proposal count
-        perception_summary = f"Perceived environment: {num_msgs} messages, {num_knowledge} knowledge items, {num_proposals} active proposals."
+        num_proposals = len(environment_state.get('active_proposals', []))
+        current_tick = environment_state.get('current_tick', -1)
+        is_forced_vote = environment_state.get('is_forced_vote_tick', False)
+
+        perception_summary = f"Perceived environment at Tick {current_tick}: {num_msgs} msgs, {num_knowledge} knowledge, {num_proposals} proposals."
+        if is_forced_vote:
+            perception_summary += " (Forced Vote Tick)"
+
+        # Store the entire perceived state, including tick info and forced vote flag
         self.update_memories({
             "type": "perception",
-            "content": environment_state,
+            "content": environment_state, # Contains tick info now
             "summary": perception_summary
         })
-        # Store active proposals from perception for use in _build_prompt
+        # Store active proposals separately for easier access in _build_prompt
         self._last_perceived_proposals = environment_state.get('active_proposals', [])
         logger.debug(f"Agent {self.agent_id} ({self.color}): {perception_summary}")
 
@@ -286,14 +293,54 @@ class Agent:
                 prompt_lines.append(f"  Desc: {desc}")
                 prompt_lines.append(f"  Status: {vote_summary} (Your Vote: {my_vote})")
 
-        # 6. Action Instructions
+        # 6. Get Tick Info from last perception
+        current_tick = -1
+        is_forced_vote_tick = False
+        forced_vote_interval = 0
+        for mem in reversed(self.short_term_memory):
+            if mem.get('type') == 'perception':
+                current_tick = mem.get('content', {}).get('current_tick', -1)
+                is_forced_vote_tick = mem.get('content', {}).get('is_forced_vote_tick', False)
+                forced_vote_interval = mem.get('content', {}).get('forced_vote_interval', 0)
+                break
+
+        # 7. Action Instructions
         prompt_lines.extend([
             "\n--- Your Task ---",
+            f"Current Simulation Tick: {current_tick}.",
+        ])
+        if forced_vote_interval > 0:
+            next_forced_vote_tick = ((current_tick // forced_vote_interval) + 1) * forced_vote_interval
+            prompt_lines.append(f"The next mandatory voting check is at Tick {next_forced_vote_tick}.")
+
+        prompt_lines.extend([
             "Based on your directives and the context provided above (messages, knowledge, proposals), decide your next single action.",
             "Your primary goal is societal progress through discussion AND action.",
             "Engage in discussion using `SendMessageAction` to explore ideas, ask questions, and build consensus.",
             "**IMPORTANT:** When the discussion converges on a specific, actionable idea (like establishing a rule, adopting a structure, or adding specific knowledge), or if someone suggests making a formal proposal, **STOP discussing it further with `SendMessageAction` and FORMALIZE it using `ProposeAction`**.",
-            "If there are active proposals you haven't voted on, use `VoteAction`.",
+        ])
+
+        # Forced Voting Logic
+        can_vote = False
+        unvoted_proposals = []
+        if active_proposals:
+            my_votes = {p.get('proposal_id'): p.get('votes', {}).get(self.agent_id) for p in active_proposals}
+            unvoted_proposals = [p for p in active_proposals if my_votes.get(p.get('proposal_id')) is None]
+            if unvoted_proposals:
+                can_vote = True
+
+        if is_forced_vote_tick:
+            if can_vote:
+                prompt_lines.append("**MANDATORY VOTE CHECK:** You MUST use `VoteAction` on at least one active proposal you haven't voted on yet (see list above). Choose the proposal you want to prioritize voting on now.")
+            else:
+                prompt_lines.append("**MANDATORY VOTE CHECK:** There are no active proposals for you to vote on. You may choose any other action.")
+        elif can_vote:
+             prompt_lines.append("Consider using `VoteAction` on active proposals you haven't voted on yet.")
+        else:
+             prompt_lines.append("There are currently no active proposals for you to vote on.")
+
+
+        prompt_lines.extend([
             "Use `PublishKnowledgeAction` for agreed-upon facts or summaries, potentially *after* a proposal passes.",
             "Use `QueryKnowledgeAction` if you need specific information from the knowledge base.",
             "",

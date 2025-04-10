@@ -23,3 +23,4 @@ upgrade_threshold: 100 # Placeholder
 tick_delay_ms: 100 # Placeholder
 save_interval_ticks: 10 # Placeholder
 log_level: INFO # Placeholder
+forced_vote_interval: 0 # Ticks between forced voting prompts (0 to disable)

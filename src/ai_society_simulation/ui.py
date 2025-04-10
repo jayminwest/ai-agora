@@ -45,13 +45,22 @@ class SimulationUI:
 
     def _create_dashboard_panel(self, sim_state: Dict[str, Any]) -> Panel:
         """Creates the dashboard panel with overall stats and agent summaries."""
-        tick = sim_state.get('tick_count', 'N/A')
+        tick = sim_state.get('tick_count', -1)
         agents = sim_state.get('agents', [])
         num_agents = len(agents)
+        config = sim_state.get('config', {})
+        forced_vote_interval = config.get('forced_vote_interval', 0)
 
         # Start with general info
         dashboard_content = Text()
-        dashboard_content.append(f"Tick: {tick}\nTotal Agents: {num_agents}\n\n", style="bold")
+        dashboard_content.append(f"Tick: {tick}", style="bold")
+        if forced_vote_interval > 0:
+            next_forced_vote_tick = ((tick // forced_vote_interval) + 1) * forced_vote_interval
+            is_forced = (tick % forced_vote_interval == 0)
+            dashboard_content.append(f" | Next Vote Check: {next_forced_vote_tick}", style="dim")
+            if is_forced:
+                 dashboard_content.append(" (NOW!)", style="bold yellow")
+        dashboard_content.append(f"\nTotal Agents: {num_agents}\n\n", style="bold")
         dashboard_content.append("Agent Status:\n", style="bold underline")
 
         # Add individual agent stats

@@ -150,8 +150,16 @@ class Simulation:
         for agent in agent_order:
             try:
                 logger.debug(f"Processing agent {agent.agent_id} for tick {self.tick_count}")
+                # Determine if it's a forced vote tick
+                forced_vote_interval = self.config.get('forced_vote_interval', 0)
+                is_forced_vote_tick = (forced_vote_interval > 0 and self.tick_count % forced_vote_interval == 0)
+
                 # 1. Perceive
                 current_environment_state = self.environment.get_state()
+                # Add simulation tick info to the state passed to the agent
+                current_environment_state['current_tick'] = self.tick_count
+                current_environment_state['is_forced_vote_tick'] = is_forced_vote_tick
+                current_environment_state['forced_vote_interval'] = forced_vote_interval # Pass interval for calculating next
                 agent.perceive(current_environment_state)
 
                 # 2. Think & 3. Act (Combined in Agent.act method)
