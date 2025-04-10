@@ -21,6 +21,7 @@ from ai_society_simulation.simulation import Simulation
 from ai_society_simulation.persistence import save_state, load_state
 from ai_society_simulation.ui import SimulationUI
 from rich.live import Live
+from rich.logging import RichHandler # Import RichHandler
 
 # --- Configuration ---
 CONFIG_PATH = os.path.join(project_root, 'config.yaml')
