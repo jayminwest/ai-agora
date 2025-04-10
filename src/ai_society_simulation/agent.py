@@ -86,16 +86,39 @@ class Agent:
         logger.debug(f"Agent {self.agent_id} personality prompt:\n{prompt}")
 
         try:
-            response_text = call_ollama(
+            # call_ollama now returns the message dictionary
+            response_message = call_ollama(
                 self.model_identifier,
                 prompt,
                 request_json_format=False # Request plain text for personality description
             )
-            # Clean up response (remove potential quotes or extra whitespace)
-            self.personality_and_motives = response_text.strip().strip('"').strip("'").strip()
-            logger.info(f"Agent {self.agent_id} ({self.color}) determined personality: {self.personality_and_motives}")
+
+            # Extract the content string from the message dictionary
+            personality_text = response_message.get('content')
+
+            if isinstance(personality_text, str):
+                # Clean up response (remove potential quotes or extra whitespace)
+                self.personality_and_motives = personality_text.strip().strip('"').strip("'").strip()
+                logger.info(f"Agent {self.agent_id} ({self.color}) determined personality: {self.personality_and_motives}")
+                self.update_memories({
+                    "type": "personality_set",
+                    "content": {"prompt": prompt, "response": response_message}, # Log the full response message
+                    "summary": f"Personality determined: {self.personality_and_motives[:60]}..."
+                })
+            else:
+                logger.error(f"Agent {self.agent_id} ({self.color}) received non-string content for personality: {personality_text}")
+                self.personality_and_motives = "Failed to determine personality (invalid response content)."
+                self.update_memories({
+                    "type": "personality_error",
+                    "content": {"prompt": prompt, "response": response_message, "error": "Non-string content received"},
+                    "summary": "Failed to determine personality (invalid content)."
+                })
+
+        except Exception as e:
+            logger.exception(f"Agent {self.agent_id} ({self.color}) failed to determine personality: {e}")
+            self.personality_and_motives = "Failed to determine personality due to error."
             self.update_memories({
-                "type": "personality_set",
+                "type": "personality_error",
                 "content": {"prompt": prompt, "response": response_text},
                 "summary": f"Personality determined: {self.personality_and_motives[:60]}..."
             })
