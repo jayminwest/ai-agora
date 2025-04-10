@@ -48,7 +48,12 @@ def setup_logging(log_level_str: str = "INFO", log_file: str = "simulation.log")
     if root_logger.hasHandlers():
         root_logger.handlers.clear()
 
+    # Create a console handler to also output to stderr
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(log_formatter)
+
     root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler) # Add console output back
 
     # Example of setting a higher level for a noisy library
     # logging.getLogger("noisy_library").setLevel(logging.WARNING)
