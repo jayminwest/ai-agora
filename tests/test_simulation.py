@@ -1,6 +1,15 @@
 """Basic tests for the Simulation class."""
 
+import os
+import sys
 import pytest
+
+# Add the src directory to the Python path
+# This allows importing modules from src/ai_society_simulation
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+src_path = os.path.join(project_root, 'src')
+if src_path not in sys.path:
+    sys.path.insert(0, src_path)
 from ai_society_simulation.simulation import Simulation
 from ai_society_simulation.agent import Agent
 from ai_society_simulation.environment import Environment
