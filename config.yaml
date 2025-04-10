@@ -5,7 +5,7 @@ model_tiers:
   - phi3:mini
 # Add other keys with placeholder values or comments if needed for structure
 agent_directives_pool: ["Be confrontational", "You are trying to steal the wealthiest agent's money"]
-initial_system_message: "FIGHT" # Configurable system prompt
+initial_system_message: "Welcome!" # Configurable system prompt
 initial_knowledge_base_file: data/knowledge-base.json # Optional: Path to a JSON file with initial knowledge items (relative to project root)
 influence_rules: {} # Placeholder
 upgrade_mechanism: voting # Placeholder
