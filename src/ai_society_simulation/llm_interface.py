@@ -13,18 +13,23 @@ StreamCallback = Optional[Callable[[Dict[str, Any]], None]]
 def call_ollama(
     model_identifier: str,
     prompt: str,
-    stream_callback: StreamCallback = None
+    stream_callback: StreamCallback = None,
+    request_json_format: bool = True # Add flag to control format request
 ) -> str:
     """
-    Calls the Ollama API with the given model and prompt, supporting streaming callbacks.
+    Calls the Ollama API with the given model and prompt, supporting streaming callbacks
+    and optionally requesting non-JSON format.
 
     Args:
         model_identifier: The name of the Ollama model to use.
         prompt: The input prompt for the model.
         stream_callback: An optional function to call with each response chunk during streaming.
+        request_json_format: If True, requests JSON format from Ollama. If False, requests plain text.
 
     Returns:
-        The complete response content from the LLM as a JSON string.
+        The complete response content from the LLM as a string.
+        If JSON was requested and the response is invalid JSON, a fallback NoAction JSON string is returned.
+        If plain text was requested, the raw text is returned.
 
     Raises:
         Exception: If the API call fails catastrophically. Returns error JSON for recoverable errors.
@@ -36,7 +41,7 @@ def call_ollama(
         stream = ollama.chat(
             model=model_identifier,
             messages=[{'role': 'user', 'content': prompt}],
-            format='json', # Still request JSON output
+            format='json' if request_json_format else None, # Conditionally set format
             stream=True
         )
 
@@ -62,21 +67,29 @@ def call_ollama(
 
         logger.debug(f"Ollama stream finished. Full response ({len(full_response_content)} chars): {full_response_content[:100]}...")
 
-        # Validate the *complete* JSON response after streaming finishes
-        try:
-            json.loads(full_response_content)
+        # If JSON was requested, validate it. Otherwise, return raw text.
+        if request_json_format:
+            try:
+                json.loads(full_response_content)
+                return full_response_content # Return valid JSON string
+            except json.JSONDecodeError:
+                logger.warning(f"Ollama full response for model {model_identifier} was not valid JSON when JSON was requested: {full_response_content}")
+                # Fallback: Wrap the non-JSON response in a NoAction JSON
+                fallback_json = json.dumps({"_action_type": "NoAction", "reason": f"LLM response was not valid JSON: {full_response_content[:100]}..."})
+                return fallback_json
+        else:
+            # If plain text was requested, return the raw content directly
             return full_response_content
-        except json.JSONDecodeError:
-            logger.warning(f"Ollama full response for model {model_identifier} was not valid JSON after streaming: {full_response_content}")
-            # Fallback: Wrap the non-JSON response
-            fallback_json = json.dumps({"_action_type": "NoAction", "reason": f"LLM response was not valid JSON: {full_response_content[:100]}..."})
-            return fallback_json
 
     except Exception as e:
         logger.error(f"Error during Ollama stream call for model {model_identifier}: {e}", exc_info=True)
-        # Return a dummy error JSON string indicating failure
-        error_json = json.dumps({"_action_type": "NoAction", "reason": f"LLM call failed: {e}"})
-        return error_json
+        # Return a dummy error string indicating failure
+        # If JSON was requested, return NoAction JSON, otherwise return plain error text
+        if request_json_format:
+            error_json = json.dumps({"_action_type": "NoAction", "reason": f"LLM call failed: {e}"})
+            return error_json
+        else:
+            return f"LLM call failed: {e}"
 
 
 # Example of a dummy implementation (keep commented out if using real call)

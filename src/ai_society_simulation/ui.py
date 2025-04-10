@@ -37,9 +37,10 @@ class SimulationUI:
             Layout(name="agent_inspector", ratio=2),
         )
         layout["right_panel"].split_column(
+            Layout(name="tick_summary", size=5), # Add summary panel at the top
             Layout(name="message_log", ratio=1),
             Layout(name="knowledge_base", ratio=1),
-            Layout(name="proposals", ratio=1), # Add proposals panel
+            Layout(name="proposals", ratio=1),
         )
         return layout
 
@@ -287,18 +288,21 @@ class SimulationUI:
 
         return Panel(table, title="Active Proposals")
 
-    def display_tick(self, simulation_state: dict) -> Layout:
-        """Updates the layout with the current simulation state."""
-        self.layout["header"].update(Panel(Text("AI Society Simulation", style="bold blue"), style="blue"))
-        self.layout["dashboard"].update(self._create_dashboard_panel(simulation_state))
+    def _create_summary_panel(self, sim_state: Dict[str, Any]) -> Panel:
+        """Creates the tick summary panel."""
+        summary = sim_state.get('last_tick_summary', '(No summary generated yet)')
+        tick = sim_state.get('tick_count', 0)
+        title = f"Tick {tick} Summary" if summary else "Tick Summary"
+        return Panel(Text(summary, style="italic"), title=title)
     def display_tick(self, simulation_state: dict, running: bool = False) -> Layout:
         """Updates the layout with the current simulation state and run status."""
         self.layout["header"].update(Panel(Text("AI Society Simulation", style="bold blue"), style="blue"))
         self.layout["dashboard"].update(self._create_dashboard_panel(simulation_state))
         self.layout["agent_inspector"].update(self._create_agent_panel(simulation_state))
         self.layout["message_log"].update(self._create_message_log_panel(simulation_state))
-        self.layout["knowledge_base"].update(self._create_knowledge_base_panel(simulation_state)) # Update KB panel
-        self.layout["proposals"].update(self._create_proposals_panel(simulation_state)) # Update proposals panel
+        self.layout["knowledge_base"].update(self._create_knowledge_base_panel(simulation_state))
+        self.layout["proposals"].update(self._create_proposals_panel(simulation_state))
+        self.layout["tick_summary"].update(self._create_summary_panel(simulation_state)) # Update summary panel
 
         # Update footer with dynamic controls and status
         status = "[bold green]Running[/]" if running else "[bold yellow]Paused[/]"

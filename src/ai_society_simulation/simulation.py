@@ -9,7 +9,7 @@ from datetime import datetime, timezone # Import datetime and timezone
 
 from .agent import Agent
 from .environment import Environment
-# from .persistence import save_state, load_state # Import if needed here, or handle in main
+from .llm_interface import call_ollama # Import call_ollama
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,8 @@ class Simulation:
         self.config = config
         self.tick_count = 0
         self.agents: List[Agent] = []
-        self.environment: Environment = Environment() # Environment initialized first
+        self.environment: Environment = Environment()
+        self.last_tick_summary: Optional[str] = None # To store the summary of the last tick
 
         # Load initial knowledge base *before* creating agents or adding system message
         self._load_initial_knowledge_base()
@@ -135,6 +136,7 @@ class Simulation:
         Args:
             update_ui_callback: An optional function to call to refresh the UI.
         """
+        tick_start_time = datetime.now(timezone.utc) # Record start time for filtering events
         self.tick_count += 1
         logger.info(f"--- Starting Tick {self.tick_count} ---")
 
@@ -187,7 +189,101 @@ class Simulation:
         logger.info(f"--- Ending Tick {self.tick_count} ---")
 
         # --- Proposal Management ---
-        self._process_proposals()
+        closed_proposals_this_tick = self._process_proposals() # Get proposals closed this tick
+
+        # --- Tick Summarization ---
+        if self.config.get('enable_tick_summary', False):
+            self._generate_tick_summary(tick_start_time, closed_proposals_this_tick)
+
+
+    def _generate_tick_summary(self, tick_start_time: datetime, closed_proposals: List[Dict[str, Any]]) -> None:
+        """Generates a summary of the completed tick using an LLM."""
+        logger.debug(f"Generating summary for tick {self.tick_count}...")
+        summarization_model = self.config.get('summarization_model')
+        if not summarization_model:
+            logger.warning("Tick summarization enabled but no summarization_model configured. Skipping.")
+            self.last_tick_summary = "Summarization skipped (no model configured)."
+            return
+
+        # 1. Gather events from this tick
+        tick_start_iso = tick_start_time.isoformat()
+
+        messages_this_tick = [
+            msg for msg in self.environment.message_log
+            if msg.get('timestamp', '') >= tick_start_iso
+        ]
+        knowledge_this_tick = [
+            item for item in self.environment.shared_knowledge_base
+            if item.get('timestamp', '') >= tick_start_iso
+        ]
+        proposals_created_this_tick = [
+            prop for prop in self.environment.proposals
+            if prop.get('timestamp_proposed', '') >= tick_start_iso
+        ]
+        # Votes are harder to filter by time directly, maybe summarize proposal status changes
+
+        # 2. Build the prompt
+        prompt_lines = [
+            f"Summarize the key events of simulation tick {self.tick_count} based on the following data.",
+            "Focus on agent actions, communication themes, new knowledge, and proposal outcomes.",
+            "Be concise (2-4 sentences). Do not use JSON format.",
+            "\n--- Messages ---"
+        ]
+        if messages_this_tick:
+            for msg in messages_this_tick[-10:]: # Limit messages in prompt
+                 prompt_lines.append(f"- {msg['sender_id']}: {msg['content'][:80]}...")
+        else:
+            prompt_lines.append("- None")
+
+        prompt_lines.append("\n--- Knowledge Published ---")
+        if knowledge_this_tick:
+            for item in knowledge_this_tick[-5:]: # Limit knowledge in prompt
+                prompt_lines.append(f"- {item['source_agent_id']} added: {item['content'][:80]}...")
+        else:
+            prompt_lines.append("- None")
+
+        prompt_lines.append("\n--- Proposals Created ---")
+        if proposals_created_this_tick:
+            for prop in proposals_created_this_tick[-5:]: # Limit proposals in prompt
+                prompt_lines.append(f"- {prop['proposer_agent_id']} proposed ({prop['proposal_id']}): {prop['description'][:80]}...")
+        else:
+            prompt_lines.append("- None")
+
+        prompt_lines.append("\n--- Proposals Closed ---")
+        if closed_proposals:
+            for prop in closed_proposals[-5:]: # Limit proposals in prompt
+                prompt_lines.append(f"- Proposal {prop['proposal_id']} by {prop['proposer_agent_id']} finished with status: {prop['status']}")
+        else:
+            prompt_lines.append("- None")
+
+        prompt_lines.append("\nGenerate the summary:")
+        prompt = "\n".join(prompt_lines)
+        logger.debug(f"Summarization prompt for tick {self.tick_count}:\n{prompt}")
+
+        # 3. Call LLM (requesting plain text)
+        try:
+            # Modify call_ollama if needed to explicitly handle non-JSON requests,
+            # but the current one should work if the model respects the prompt.
+            # We might need a separate function or flag if strict non-JSON is required.
+            # For now, assume the model follows instructions.
+            # NOTE: call_ollama currently forces JSON format in the request.
+            # We need to adapt it or create a variant. Let's adapt it for now.
+            summary_text = call_ollama(summarization_model, prompt, request_json_format=False) # Add flag
+
+            # Clean up potential markdown or quotes
+            summary_text = summary_text.strip().strip('"').strip("'").strip()
+            if summary_text.startswith("```"):
+                 summary_text = summary_text.split('\n', 1)[1].rsplit('\n', 1)[0].strip() # Remove fences
+
+            self.last_tick_summary = summary_text
+            logger.info(f"Tick {self.tick_count} Summary: {summary_text}")
+
+            # 4. Add summary to environment message log
+            self.environment.add_message("System", f"Tick {self.tick_count} Summary: {summary_text}")
+
+        except Exception as e:
+            logger.exception(f"Error generating tick summary for tick {self.tick_count}: {e}")
+            self.last_tick_summary = f"Error generating summary: {e}"
 
 
     def to_dict(self) -> Dict[str, Any]:
@@ -197,6 +293,7 @@ class Simulation:
             "tick_count": self.tick_count,
             "agents": [agent.to_dict() for agent in self.agents],
             "environment": self.environment.to_dict(),
+            "last_tick_summary": self.last_tick_summary, # Save summary
         }
 
     @classmethod
@@ -205,6 +302,7 @@ class Simulation:
         config = data["config"]
         simulation = cls(config) # Re-initializes based on config
         simulation.tick_count = data.get("tick_count", 0)
+        simulation.last_tick_summary = data.get("last_tick_summary") # Load summary
 
         # Re-create agents and environment from saved state
         loaded_agents_data = data.get("agents", [])
@@ -231,12 +329,16 @@ class Simulation:
         logger.info(f"Simulation state restored to tick {simulation.tick_count}.")
         return simulation
 
-    def _process_proposals(self) -> None:
-        """Checks active proposals, closes expired ones, tallies votes, and executes passed ones."""
+    def _process_proposals(self) -> List[Dict[str, Any]]:
+        """
+        Checks active proposals, closes expired ones, tallies votes, executes passed ones.
+        Returns a list of proposals that were closed (passed/failed/error) during this call.
+        """
         logger.debug("Processing proposals...")
         now_iso = datetime.now(timezone.utc).isoformat()
         num_agents = len(self.agents)
-        if num_agents == 0: return # Cannot process proposals without agents
+        closed_this_call = [] # Track proposals closed now
+        if num_agents == 0: return closed_this_call # Cannot process proposals without agents
 
         proposals_to_close = []
         for proposal in self.environment.get_active_proposals():
@@ -256,8 +358,13 @@ class Simulation:
             except (ValueError, TypeError):
                 logger.error(f"Proposal {proposal['proposal_id']} has invalid timestamp {proposed_at_str}. Cannot determine age.")
                 proposal['status'] = 'error' # Mark as error
+                closed_this_call.append(proposal) # Add to list of closed proposals
 
         for proposal in proposals_to_close:
+            # Skip if already marked as error above
+            if proposal['status'] == 'error':
+                continue
+
             logger.info(f"Closing proposal {proposal['proposal_id']} (Duration ended).")
             votes = proposal.get("votes", {})
             yes_votes = sum(1 for vote in votes.values() if vote == "yes")

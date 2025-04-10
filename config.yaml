@@ -21,6 +21,10 @@ influence_rules: {} # Placeholder
 upgrade_mechanism: voting # Placeholder
 upgrade_threshold: 100 # Placeholder
 tick_delay_ms: 100 # Placeholder
-save_interval_ticks: 10 # Placeholder
-log_level: INFO # Placeholder
+save_interval_ticks: 10 # How often to automatically save state
+log_level: INFO # Logging verbosity (DEBUG, INFO, WARNING, ERROR)
 forced_vote_interval: 5 # Ticks between forced voting prompts (0 to disable)
+
+# Tick Summarization Configuration
+enable_tick_summary: true # Set to true to enable LLM-based tick summaries
+summarization_model: "phi3:mini" # Model to use for generating summaries (e.g., a fast model)
