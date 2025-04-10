@@ -111,13 +111,51 @@ class SimulationUI:
         log_content = Text("\n").join(log_texts) if log_texts else Text("(No messages yet)", style="dim")
         return Panel(log_content, title="Recent Messages")
 
+    def _create_knowledge_base_panel(self, sim_state: Dict[str, Any]) -> Panel:
+        """Creates the knowledge base panel."""
+        # Create a quick lookup for agent colors
+        agent_colors = {agent['agent_id']: agent.get('color', 'grey') for agent in sim_state.get('agents', [])}
+
+        knowledge_items = sim_state.get('environment', {}).get('shared_knowledge_base', [])
+        # Display last N items (e.g., 10)
+        display_items = knowledge_items[-10:]
+
+        kb_texts = []
+        for item in display_items:
+            timestamp_str = item.get('timestamp', '')
+            source_id = item.get('source_agent_id', '?')
+            content = item.get('content', '')
+            item_id = item.get('id', '?')[:8] # Show first 8 chars of ID
+            source_color = agent_colors.get(source_id, 'grey')
+
+            # Format timestamp
+            try:
+                if timestamp_str.endswith('Z'):
+                    ts_dt = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                else:
+                    ts_dt = datetime.fromisoformat(timestamp_str)
+                ts_formatted = ts_dt.strftime('%H:%M:%S')
+            except (ValueError, TypeError):
+                ts_formatted = "??:??:??"
+
+            # Create a Rich Text object for the line
+            line = Text()
+            line.append(f"[{ts_formatted} ID:{item_id}] ", style="dim")
+            line.append(f"{source_id}", style=source_color)
+            line.append(f": {content}")
+            kb_texts.append(line)
+
+        kb_content = Text("\n").join(kb_texts) if kb_texts else Text("(Knowledge base is empty)", style="dim")
+        return Panel(kb_content, title="Shared Knowledge Base")
+
+
     def display_tick(self, simulation_state: dict) -> Layout:
         """Updates the layout with the current simulation state."""
         self.layout["header"].update(Panel(Text("AI Society Simulation", style="bold blue"), style="blue"))
         self.layout["dashboard"].update(self._create_dashboard_panel(simulation_state))
         self.layout["agent_inspector"].update(self._create_agent_panel(simulation_state))
         self.layout["message_log"].update(self._create_message_log_panel(simulation_state))
-        self.layout["knowledge_base"].update(Panel("[Placeholder]", title="Knowledge Base")) # Placeholder
+        self.layout["knowledge_base"].update(self._create_knowledge_base_panel(simulation_state)) # Update KB panel
         self.layout["footer"].update(Text("Enter: 1 tick | N: N ticks | q: Quit", style="dim")) # Updated footer
         return self.layout
 

@@ -50,12 +50,18 @@ class SendMessageAction(Action):
     """Represents the agent sending a message to the environment."""
     content: str
 
+@dataclass
+class PublishKnowledgeAction(Action):
+    """Represents the agent publishing a piece of knowledge to the shared base."""
+    content: str # The factual statement or piece of information
+
 # --- Action Registry (for deserialization) ---
 # Simple registry to map action type names back to classes for from_dict
 
 _ACTION_CLASSES = {
     'NoAction': NoAction,
     'SendMessageAction': SendMessageAction,
+    'PublishKnowledgeAction': PublishKnowledgeAction, # Register new action
     # Add other action classes here as they are created
 }
 

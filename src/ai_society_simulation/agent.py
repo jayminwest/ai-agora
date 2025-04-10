@@ -42,10 +42,13 @@ class Agent:
         """
         logger.debug(f"Agent {self.agent_id} ({self.color}) perceiving environment.")
         # Store perception in memory, including recent messages
+        # Store perception in memory, including recent messages and knowledge
+        num_msgs = len(environment_state.get('recent_messages', []))
+        num_knowledge = len(environment_state.get('recent_knowledge', []))
         self.update_memories({
             "type": "perception",
             "content": environment_state,
-            "summary": f"Perceived environment state including {len(environment_state.get('recent_messages',[]))} recent messages."
+            "summary": f"Perceived environment: {num_msgs} messages, {num_knowledge} knowledge items."
         })
 
 
@@ -56,7 +59,8 @@ class Agent:
         """
         logger.debug(f"Agent {self.agent_id} ({self.color}) starting think cycle.")
         from .llm_interface import call_ollama # Avoid circular import at module level
-        from .actions import Action, NoAction, SendMessageAction # Import actions
+        # Import necessary actions
+        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction
 
         prompt = self._build_prompt()
         logger.debug(f"Agent {self.agent_id} ({self.color}) sending prompt to LLM: \n{prompt}")
@@ -148,6 +152,38 @@ class Agent:
              prompt_lines.append("\nRecent messages in the environment:")
              prompt_lines.append("- (No recent messages observed). You could start a conversation.") # Added suggestion
 
+        # 1b. Add recent knowledge from perception
+        recent_knowledge: Optional[List[Dict[str, Any]]] = None
+        # Find the latest perception in memory again (or reuse if stored)
+        for mem in reversed(self.memory):
+            if mem.get('type') == 'perception':
+                recent_knowledge = mem.get('content', {}).get('recent_knowledge')
+                break # Found the latest perception
+
+        prompt_lines.append("\nRecent items in the Shared Knowledge Base (newest first):")
+        if recent_knowledge:
+            if not recent_knowledge:
+                prompt_lines.append("- (No recent knowledge items observed)")
+            else:
+                 # Display newest first, limit count for prompt
+                for item in reversed(recent_knowledge[-3:]): # Show last 3 perceived knowledge items
+                    ts = item.get('timestamp', '?:??')
+                    source = item.get('source_agent_id', '?')
+                    content = item.get('content', '')
+                    item_id = item.get('id', '?')[:8] # Show first 8 chars of ID
+                    # Format timestamp for readability if possible
+                    try:
+                        if ts.endswith('Z'):
+                            ts_dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        else:
+                            ts_dt = datetime.fromisoformat(ts)
+                        ts_formatted = ts_dt.strftime('%H:%M:%S')
+                    except ValueError:
+                        ts_formatted = ts # Keep original if format fails
+                    prompt_lines.append(f"- [{ts_formatted} ID:{item_id}] {source}: {content}")
+        else:
+            prompt_lines.append("- (Could not retrieve recent knowledge from memory)")
+
 
         # 2. Add last few memories (actions, thoughts)
         prompt_lines.append("\nYour recent internal activity (newest first):")
@@ -176,10 +212,13 @@ class Agent:
             "If the conversation is stalled, consider asking a question or introducing a relevant topic.", # More specific guidance
             "Choose ONE of the following actions and respond ONLY with the corresponding JSON object (no explanations, preamble, or markdown formatting):",
             "",
-            "1. Send a message to the environment to continue or start a conversation:", # Emphasize conversation
-            '   {"_action_type": "SendMessageAction", "content": "Your thoughtful message here."}',
+            "1. Send a message to the environment to continue or start a conversation:",
+            '   {"_action_type": "SendMessageAction", "content": "Your conversational message here."}',
             "",
-            "2. Do nothing (if you have nothing relevant to add right now):", # Qualify NoAction
+            "2. Publish a piece of knowledge to the shared knowledge base (a factual statement or summary):",
+            '   {"_action_type": "PublishKnowledgeAction", "content": "Your factual knowledge statement here."}',
+            "",
+            "3. Do nothing (if you have nothing relevant to add right now):",
             '   {"_action_type": "NoAction", "reason": "Optional concise reason for doing nothing."}',
             "",
             "Your JSON response:"
@@ -195,7 +234,7 @@ class Agent:
         Executes the action decided during the 'think' phase.
         """
         # 1. Decide action by thinking
-        from .actions import Action, NoAction, SendMessageAction
+        from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction # Import actions
         action = self.think() # Think now stores thought details in memory
 
         # 2. Execute the action
@@ -204,6 +243,10 @@ class Agent:
             environment.add_message(self.agent_id, action.content)
             # Memory update for action taken
             self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": f"Sent message: {action.content[:50]}..."})
+        elif isinstance(action, PublishKnowledgeAction):
+            knowledge_id = environment.publish_knowledge(self.agent_id, action.content)
+            # Memory update for action taken
+            self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": f"Published knowledge ({knowledge_id[:8]}): {action.content[:40]}..."})
         elif isinstance(action, NoAction):
             log_msg = f"Agent {self.agent_id} ({self.color}) takes NoAction."
             reason = action.reason if action.reason else "No reason specified."
