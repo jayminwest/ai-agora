@@ -78,10 +78,13 @@ tick_summary: "Summary prompt for tick {tick_number}"
             # Assuming Agent.determine_personality expects a Message-like object
             # If it just needs the string, return "Mock Personality" directly
             return Message(role="assistant", content="Mock Personality")
-        elif "role determination" in prompt.lower():
-             # Simulate proposing a unique role based on the initial ID
-             agent_id_match = pytest.importorskip('re').search(r"currently identified as Agent (\S+)", prompt)
+        # --- FIX: Match the actual prompt content from the dummy prompts.yaml ---
+        elif "role prompt for" in prompt.lower():
+             # Simulate proposing a unique role based on the initial ID mentioned in the prompt
+             # The prompt format is "Role prompt for {agent_id}"
+             agent_id_match = pytest.importorskip('re').search(r"Role prompt for (\S+)", prompt)
              proposed_role = f"MockRole_{agent_id_match.group(1)}" if agent_id_match else "MockRole_default"
+             # --- END FIX ---
              # Return a Message object containing the string content, as expected by Agent.determine_role
              return Message(role="assistant", content=proposed_role)
         # Note: The personality check is handled by the first 'if' block.
