@@ -43,11 +43,51 @@ class SimulationUI:
         return layout
 
     def _create_dashboard_panel(self, sim_state: Dict[str, Any]) -> Panel:
-        """Creates the dashboard panel."""
+        """Creates the dashboard panel with overall stats and agent summaries."""
         tick = sim_state.get('tick_count', 'N/A')
-        num_agents = len(sim_state.get('agents', []))
-        content = f"Tick: {tick}\nAgents: {num_agents}"
-        return Panel(content, title="Dashboard")
+        agents = sim_state.get('agents', [])
+        num_agents = len(agents)
+
+        # Start with general info
+        dashboard_content = Text()
+        dashboard_content.append(f"Tick: {tick}\nTotal Agents: {num_agents}\n\n", style="bold")
+        dashboard_content.append("Agent Status:\n", style="bold underline")
+
+        # Add individual agent stats
+        if not agents:
+            dashboard_content.append("(No agents active)", style="dim")
+        else:
+            for agent_data in agents:
+                agent_id = agent_data.get('agent_id', 'N/A')
+                color = agent_data.get('color', 'white')
+                stm = agent_data.get('short_term_memory', [])
+                stm_len = len(stm)
+
+                # Find the last action taken from memory (simplified for dashboard)
+                last_action_type = "N/A"
+                for mem in reversed(stm):
+                    if mem.get('type') == 'action_taken':
+                        action_dict = mem.get('action', {})
+                        last_action_type = action_dict.get('_action_type', 'Unknown')
+                        # Add brief detail for common actions
+                        if last_action_type == 'NoAction':
+                            reason = action_dict.get('reason')
+                            if reason: last_action_type += " (R)" # Indicate reason exists
+                        elif last_action_type == 'SendMessageAction':
+                            last_action_type = "Msg"
+                        elif last_action_type == 'PublishKnowledgeAction':
+                            last_action_type = "PubKnow"
+                        elif last_action_type == 'QueryKnowledgeAction':
+                            last_action_type = "QueryKnow"
+                        break # Found the latest action
+
+                # Append agent line with color
+                dashboard_content.append(f"- ", style="dim")
+                dashboard_content.append(f"{agent_id}", style=f"bold {color}")
+                dashboard_content.append(f": STM={stm_len}, LastAct={last_action_type}\n")
+
+
+        return Panel(dashboard_content, title="Dashboard")
 
     def _create_agent_panel(self, sim_state: Dict[str, Any]) -> Panel:
         """Creates the agent inspector panel displaying a table of agents."""
