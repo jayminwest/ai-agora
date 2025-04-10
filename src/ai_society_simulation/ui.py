@@ -62,6 +62,7 @@ class SimulationUI:
                 color = agent_data.get('color', 'white')
                 stm = agent_data.get('short_term_memory', [])
                 stm_len = len(stm)
+                is_generating = agent_data.get('is_generating', False) # Get generating status
 
                 # Find the last action taken from memory (simplified for dashboard)
                 last_action_type = "N/A"
@@ -81,10 +82,13 @@ class SimulationUI:
                             last_action_type = "QueryKnow"
                         break # Found the latest action
 
-                # Append agent line with color
+                # Append agent line with color and generating status
                 dashboard_content.append(f"- ", style="dim")
                 dashboard_content.append(f"{agent_id}", style=f"bold {color}")
-                dashboard_content.append(f": STM={stm_len}, LastAct={last_action_type}\n")
+                dashboard_content.append(f": STM={stm_len}, LastAct={last_action_type}")
+                if is_generating:
+                    dashboard_content.append(" [dim](thinking...)[/]", style="italic") # Add indicator
+                dashboard_content.append("\n") # Add newline
 
 
         return Panel(dashboard_content, title="Dashboard")
@@ -108,6 +112,7 @@ class SimulationUI:
             model = agent_data.get('model_identifier', 'N/A')
             stm = agent_data.get('short_term_memory', []) # Use correct key 'short_term_memory'
             stm_len = str(len(stm))
+            is_generating = agent_data.get('is_generating', False) # Get generating status
 
             # Find the last action taken from memory (copied from dashboard logic)
             last_action_type = "N/A"
@@ -137,7 +142,7 @@ class SimulationUI:
                 f"[{color}]{color}[/]", # Display color name with its color
                 model,
                 stm_len,
-                last_action_type # Add last action type to the row
+                f"{last_action_type}{' [dim](...)[/]' if is_generating else ''}" # Add indicator to last action
             )
 
 

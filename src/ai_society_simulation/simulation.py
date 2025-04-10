@@ -125,8 +125,13 @@ class Simulation:
             self.environment.add_message("System", initial_message)
             logger.info(f"Added initial system message from config: '{initial_message[:100]}...'")
 
-    def run_tick(self) -> None:
-        """Executes a single time step (tick) of the simulation."""
+    def run_tick(self, update_ui_callback: Optional[Callable[[], None]] = None) -> None:
+        """
+        Executes a single time step (tick) of the simulation.
+
+        Args:
+            update_ui_callback: An optional function to call to refresh the UI.
+        """
         self.tick_count += 1
         logger.info(f"--- Starting Tick {self.tick_count} ---")
 
@@ -142,16 +147,27 @@ class Simulation:
         for agent in agent_order:
             try:
                 logger.debug(f"Processing agent {agent.agent_id} for tick {self.tick_count}")
-                # 1. Perceive (Get the *latest* state just before perceiving)
+                # 1. Perceive
                 current_environment_state = self.environment.get_state()
                 agent.perceive(current_environment_state)
 
                 # 2. Think & 3. Act (Combined in Agent.act method)
-                # The agent's act method now includes the think call and action execution
-                # It uses the perception stored in the previous step.
-                agent.act(self.environment) # Agent handles its own thinking and action execution
+                # Manage is_generating state and update UI around the agent's action
+                agent.is_generating = True # Set flag *before* calling act
+                if update_ui_callback:
+                    update_ui_callback() # Update UI to show agent is thinking
 
-                # 4. Update Memories (Handled within Agent methods)
+                try:
+                    # Agent.act now internally manages the is_generating flag during its execution
+                    # but we set it before and clear it after here to ensure UI updates correctly
+                    # around the entire agent turn.
+                    agent.act(self.environment) # Agent handles its own thinking and action execution
+                finally:
+                    agent.is_generating = False # Ensure flag is cleared *after* act completes
+                    if update_ui_callback:
+                        update_ui_callback() # Update UI to show agent finished thinking
+
+                # 4. Update Memories (Handled within Agent methods now)
 
             except Exception as e:
                 logger.exception(f"Error processing agent {agent.agent_id} during tick {self.tick_count}: {e}")

@@ -165,7 +165,10 @@ if __name__ == "__main__":
                     elif char in ['\n', ' ']: # Enter or Space key
                         if not continuous_run_mode:
                             logger.info(f"Stepping 1 tick to {simulation.tick_count + 1}...")
-                            simulation.run_tick()
+                            # Define the UI update callback function (needed here too for manual step)
+                            def update_live_display():
+                                live.update(ui.display_tick(simulation.to_dict(), continuous_run_mode))
+                            simulation.run_tick(update_ui_callback=update_live_display) # Pass callback for manual step
                             # Periodic saving check after manual step
                             save_interval = config.get('save_interval_ticks', 0)
                             if save_interval > 0 and simulation.tick_count % save_interval == 0:
@@ -179,9 +182,13 @@ if __name__ == "__main__":
                         logger.debug(f"Ignoring key: {repr(char)}")
 
 
+                # Define the UI update callback function
+                def update_live_display():
+                    live.update(ui.display_tick(simulation.to_dict(), continuous_run_mode))
+
                 # Run simulation tick if in continuous mode
                 if continuous_run_mode:
-                    simulation.run_tick()
+                    simulation.run_tick(update_ui_callback=update_live_display) # Pass callback
                     # Periodic saving check during continuous run
                     save_interval = config.get('save_interval_ticks', 0)
                     if save_interval > 0 and simulation.tick_count % save_interval == 0:

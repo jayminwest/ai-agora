@@ -34,6 +34,7 @@ class Agent:
         self.short_term_memory: Deque[Dict[str, Any]] = deque(maxlen=20) # Recent events
         self.knowledge_query_result: Optional[List[Dict[str, Any]]] = None # Result from last KB query
         self.personality_and_motives: str = "Not yet determined." # Initialize personality attribute
+        self.is_generating: bool = False # Flag to indicate if the agent is currently thinking/calling LLM
         # self.long_term_memory: List[str] = [] # Placeholder for future LTM/Summaries
         logger.info(f"Agent {self.agent_id} ({self.color}) initialized with model {self.model_identifier}.")
 
@@ -296,13 +297,20 @@ class Agent:
         Thinks to decide an action, executes it, updates memory, and returns the action.
         Execution logic for QueryKnowledgeAction is handled here to store results.
         """
-        # 1. Decide action by thinking
+        # 1. Decide action by thinking (inside try...finally to manage is_generating)
         from .actions import Action, NoAction, SendMessageAction, PublishKnowledgeAction, QueryKnowledgeAction # Import actions
-        action = self.think() # Think now stores thought details in STM
 
-        # 2. Execute the action and update memory
-        logger.info(f"Agent {self.agent_id} ({self.color}) executing action: {action.__class__.__name__}")
-        action_summary = f"Unknown action: {type(action)}" # Default summary
+        action: Action = NoAction(reason="Initialization before think") # Default action
+        action_summary = "Action execution skipped due to error during think." # Default summary
+
+        # Set generating flag before thinking, ensure it's cleared after
+        self.is_generating = True
+        try:
+            action = self.think() # Think now stores thought details in STM
+
+            # 2. Execute the action and update memory (only if think succeeded)
+            logger.info(f"Agent {self.agent_id} ({self.color}) executing action: {action.__class__.__name__}")
+            action_summary = f"Unknown action: {type(action)}" # Reset summary for execution
 
         if isinstance(action, SendMessageAction):
             environment.add_message(self.agent_id, action.content)
@@ -324,8 +332,13 @@ class Agent:
             logger.warning(f"Agent {self.agent_id} ({self.color}) attempted unknown or unhandled action type: {type(action)}")
             action_summary = f"Action failed (unhandled type {type(action)})"
 
-        # Update short-term memory about the action taken
-        self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": action_summary})
+        finally:
+            # Ensure the generating flag is turned off regardless of success/failure
+            self.is_generating = False
+            # Update short-term memory about the action taken (or attempted)
+            # We log the action decided by think(), even if execution failed later (though less likely now)
+            # If think() itself failed, the initial NoAction and error summary are used.
+            self.update_memories({"type": "action_taken", "action": action.to_dict(), "summary": action_summary})
 
         return action # Return the action taken (might be useful for sim loop)
 
@@ -357,6 +370,7 @@ class Agent:
             "directives": self.directives,
             "short_term_memory": list(self.short_term_memory), # Convert deque to list for JSON
             "personality_and_motives": self.personality_and_motives, # Save personality
+            "is_generating": self.is_generating, # Include transient generating state
             # knowledge_query_result is transient, not saved
         }
 
@@ -391,4 +405,6 @@ class Agent:
         agent.personality_and_motives = data.get("personality_and_motives", "Personality not found in save file.")
         # knowledge_query_result is initialized to None, not loaded from state
         agent.knowledge_query_result = None
+        # is_generating is transient and should always start as False when loaded
+        agent.is_generating = False
         return agent
