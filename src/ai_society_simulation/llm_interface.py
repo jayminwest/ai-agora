@@ -2,7 +2,7 @@
 
 import logging
 import json
-from typing import Callable, Optional, Any # Import Callable, Optional, Any
+from typing import Callable, Optional, Any, Dict # Import Callable, Optional, Any, Dict
 import ollama # Assuming ollama library is installed
 
 logger = logging.getLogger(__name__)
